@@ -20,14 +20,88 @@ class NetworkNode(QGraphicsEllipseItem):
         self.setBrush(QBrush(QColor(200, 220, 255)))
         self.setPen(QPen(Qt.GlobalColor.black))
         self.setAcceptHoverEvents(True)
+        self.radius = radius
         
     def mousePressEvent(self, event):
-        self.setBrush(QBrush(QColor(255, 200, 200)))
-        super().mousePressEvent(event)
-        
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setBrush(QBrush(QColor(255, 200, 200)))
+            if isinstance(self.scene().views()[0], NetworkView):
+                view = self.scene().views()[0]
+                if view.edge_mode:
+                    view.node_clicked(self)
+                else:
+                    super().mousePressEvent(event)
+
     def mouseReleaseEvent(self, event):
         self.setBrush(QBrush(QColor(200, 220, 255)))
-        super().mouseReleaseEvent(event)
+        if not self.scene().views()[0].edge_mode:
+            super().mouseReleaseEvent(event)
+            
+    def hoverEnterEvent(self, event):
+        self.setBrush(QBrush(QColor(220, 240, 255)))  # Highlight on hover
+        if isinstance(self.scene().views()[0], NetworkView):
+            view = self.scene().views()[0]
+            if view.edge_mode and view.source_node and view.source_node != self:
+                self.setBrush(QBrush(QColor(200, 255, 200)))  # Green highlight for valid target
+                view.complete_edge(self)
+                event.accept()
+                return
+        super().hoverEnterEvent(event)
+        
+    def hoverLeaveEvent(self, event):
+        self.setBrush(QBrush(QColor(200, 220, 255)))  # Reset color
+        super().hoverLeaveEvent(event)
+        
+    def center(self):
+        return self.pos() + QPointF(self.radius, self.radius)
+        
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
+            # Update connected edges when node moves
+            if isinstance(self.scene().views()[0], NetworkView):
+                view = self.scene().views()[0]
+                for edge in view.edges:
+                    if edge.source_node == self or edge.target_node == self:
+                        edge.update_position()
+        return super().itemChange(change, value)
+
+class NetworkEdge(QGraphicsLineItem):
+    def __init__(self, source_node, target_node, edge_type=1):
+        super().__init__()
+        self.source_node = source_node
+        self.target_node = target_node
+        self.edge_type = edge_type  # 1 for activation, -1 for inhibition
+        self.setPen(QPen(QColor('blue' if edge_type == 1 else 'red'), 2))
+        self.setZValue(-1)  # Draw edges behind nodes
+        self.update_position()
+        
+    def update_position(self):
+        if not (self.source_node and self.target_node):
+            return
+            
+        source_pos = self.source_node.center()
+        target_pos = self.target_node.center()
+        
+        # Calculate vector from source to target
+        dx = target_pos.x() - source_pos.x()
+        dy = target_pos.y() - source_pos.y()
+        length = (dx * dx + dy * dy) ** 0.5
+        
+        if length == 0:
+            return
+            
+        # Normalize vector
+        dx /= length
+        dy /= length
+        
+        # Adjust start and end points to be on the circle edge
+        radius = self.source_node.radius
+        start_x = source_pos.x() + dx * radius
+        start_y = source_pos.y() + dy * radius
+        end_x = target_pos.x() - dx * radius
+        end_y = target_pos.y() - dy * radius
+        
+        self.setLine(start_x, start_y, end_x, end_y)
 
 class NetworkView(QGraphicsView):
     def __init__(self, parent=None):
@@ -44,6 +118,13 @@ class NetworkView(QGraphicsView):
         # Initialize GRN
         self.grn = GRN()
         self.nodes = {}
+        self.edges = []
+        
+        # Edge drawing state
+        self.edge_mode = False
+        self.source_node = None
+        self.temp_line = None
+        self.edge_type = 1  # 1 for activation, -1 for inhibition
         
     def add_node(self, name, x=None, y=None):
         if x is None:
@@ -59,6 +140,79 @@ class NetworkView(QGraphicsView):
         text = self.scene.addText(name)
         text.setPos(x-10, y-10)
         return node
+        
+    def node_clicked(self, node):
+        if self.source_node is None:
+            # Start edge creation
+            self.source_node = node
+            self.temp_line = QGraphicsLineItem()
+            self.temp_line.setPen(QPen(QColor('blue' if self.edge_type == 1 else 'red'), 2))
+            self.scene.addItem(self.temp_line)
+
+    def complete_edge(self, target_node):
+        if self.source_node and self.source_node != target_node:
+            edge = NetworkEdge(self.source_node, target_node, self.edge_type)
+            self.scene.addItem(edge)
+            self.edges.append(edge)
+            
+            # Update GRN
+            regulator = {'name': self.source_node.name, 
+                        'type': self.edge_type,
+                        'Kd': 5,  # Default values
+                        'n': 2}
+            product = {'name': target_node.name}
+            self.grn.add_gene(10, [regulator], [product])
+            
+            # Clean up
+            if self.temp_line:
+                self.scene.removeItem(self.temp_line)
+            self.source_node = None
+            self.temp_line = None
+
+    def mouseMoveEvent(self, event):
+        if self.source_node and self.temp_line:
+            # Update temporary line while dragging
+            source_pos = self.source_node.center()
+            mouse_pos = self.mapToScene(event.pos())
+            
+            # Calculate vector from source to mouse
+            dx = mouse_pos.x() - source_pos.x()
+            dy = mouse_pos.y() - source_pos.y()
+            length = (dx * dx + dy * dy) ** 0.5
+            
+            if length > 0:
+                # Normalize vector
+                dx /= length
+                dy /= length
+                
+                # Start from edge of source node
+                radius = self.source_node.radius
+                start_x = source_pos.x() + dx * radius
+                start_y = source_pos.y() + dy * radius
+                
+                self.temp_line.setLine(start_x, start_y, mouse_pos.x(), mouse_pos.y())
+            
+            # Check if mouse is over a potential target node
+            items = self.items(event.pos())
+            for item in items:
+                if isinstance(item, NetworkNode) and item != self.source_node:
+                    item.setBrush(QBrush(QColor(200, 255, 200)))  # Green highlight
+                    self.complete_edge(item)
+                    return
+                    
+        super().mouseMoveEvent(event)
+        
+    def mouseReleaseEvent(self, event):
+        # Cancel edge creation if released on empty space
+        if event.button() == Qt.MouseButton.LeftButton and self.source_node:
+            if self.temp_line:
+                self.scene.removeItem(self.temp_line)
+            self.source_node = None
+            self.temp_line = None
+            # Reset all node colors
+            for node in self.nodes.values():
+                node.setBrush(QBrush(QColor(200, 220, 255)))
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
         # Zoom in/out with mouse wheel
@@ -81,6 +235,25 @@ class NetworkView(QGraphicsView):
         # Move scene to old position
         delta = newPos - oldPos
         self.translate(delta.x(), delta.y())
+
+    def set_edge_mode(self, enabled):
+        self.edge_mode = enabled
+        # Update cursor to indicate mode
+        if enabled:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            # Disable node dragging in edge mode
+            for node in self.nodes.values():
+                node.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
+        else:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            # Re-enable node dragging
+            for node in self.nodes.values():
+                node.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            # Clean up any ongoing edge creation
+            if self.temp_line:
+                self.scene.removeItem(self.temp_line)
+            self.source_node = None
+            self.temp_line = None
 
 class ParameterPanel(QWidget):
     def __init__(self):
@@ -173,8 +346,31 @@ class MainWindow(QMainWindow):
         # Set up menu bar
         self.setup_menu()
         
+        # Set up toolbar
+        self.setup_toolbar()
+        
         # Connect signals
         self.simulation_panel.run_button.clicked.connect(self.run_simulation)
+
+    def setup_toolbar(self):
+        toolbar = self.addToolBar("Edit")
+        
+        # Add Node button
+        add_node_action = toolbar.addAction("Add Node")
+        add_node_action.triggered.connect(self.add_node_dialog)
+        
+        # Add Edge button (toggleable)
+        self.add_edge_action = toolbar.addAction("Add Edge")
+        self.add_edge_action.setCheckable(True)
+        self.add_edge_action.toggled.connect(self.toggle_edge_mode)
+        
+        # Edge type selection
+        toolbar.addSeparator()
+        toolbar.addWidget(QLabel("Edge Type:"))
+        edge_type = QComboBox()
+        edge_type.addItems(["Activation", "Inhibition"])
+        edge_type.currentIndexChanged.connect(self.edge_type_changed)
+        toolbar.addWidget(edge_type)
 
     def setup_menu(self):
         menubar = self.menuBar()
@@ -189,7 +385,6 @@ class MainWindow(QMainWindow):
         edit_menu = menubar.addMenu("Edit")
         add_node_action = edit_menu.addAction("Add Node")
         add_node_action.triggered.connect(self.add_node_dialog)
-        add_edge_action = edit_menu.addAction("Add Edge")
         
         # View menu
         view_menu = menubar.addMenu("View")
@@ -202,12 +397,19 @@ class MainWindow(QMainWindow):
             self.network_view.add_node(name)
             # Add to GRN
             self.network_view.grn.add_species(name, 0.1)  # Default degradation rate
+            
+    def edge_type_changed(self, index):
+        # Update edge type in network view (0 = activation, 1 = inhibition)
+        self.network_view.edge_type = 1 if index == 0 else -1
 
     def run_simulation(self):
         grn = self.network_view.grn
         sim_time = self.simulation_panel.time_spin.value()
         # TODO: Implement actual simulation call and visualization
         pass
+
+    def toggle_edge_mode(self, enabled):
+        self.network_view.set_edge_mode(enabled)
 
 def main():
     app = QApplication(sys.argv)
