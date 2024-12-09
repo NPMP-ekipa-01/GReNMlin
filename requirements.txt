@@ -1,4 +1,5 @@
-matplotlib
-scipy
-pandas
-networkx
+numpy>=1.21.0
+networkx>=2.6.3
+matplotlib>=3.4.3
+PyQt6>=6.4.0
+scipy>=1.7.0
