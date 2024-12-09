@@ -131,6 +131,60 @@ class NetworkView(QGraphicsView):
         self.temp_line = None
         self.edge_type = 1  # 1 for activation, -1 for inhibition
 
+        # Add new state variables
+        self.adding_node = False
+        self.node_type_to_add = None  # Will store whether it's a regular or input node
+        self.node_name_to_add = None
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape and self.adding_node:
+            # Cancel node addition
+            self.adding_node = False
+            self.node_type_to_add = None
+            self.node_name_to_add = None
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            if isinstance(self.parent(), MainWindow):
+                self.parent().statusBar().clearMessage()
+        else:
+            super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        if self.adding_node and event.button() == Qt.MouseButton.LeftButton:
+            # Get click position in scene coordinates
+            scene_pos = self.mapToScene(event.pos())
+            x, y = scene_pos.x(), scene_pos.y()
+
+            # Add the node at click position
+            if self.node_type_to_add == 'Input':
+                self.grn.add_input_species(self.node_name_to_add)
+            else:
+                self.grn.add_species(self.node_name_to_add, 0.1)
+
+            self.add_node(self.node_name_to_add, x, y)
+
+            # Reset node adding state
+            self.adding_node = False
+            self.node_type_to_add = None
+            self.node_name_to_add = None
+
+            # Reset cursor and status
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            if isinstance(self.parent(), MainWindow):
+                self.parent().statusBar().clearMessage()
+        else:
+            super().mousePressEvent(event)
+
+    def start_add_node(self, node_name, node_type):
+        """Start the process of adding a node"""
+        self.adding_node = True
+        self.node_name_to_add = node_name
+        self.node_type_to_add = node_type
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        #fixme message isn't displayed
+        if isinstance(self.parent(), MainWindow):
+            self.parent().statusBar().showMessage(
+                f"Click on the canvas to place the new {node_type.lower()} node '{node_name}' (Press Esc to cancel)")
+
     def add_node(self, name, x=None, y=None):
         if x is None:
             x = np.random.uniform(0, self.width())
@@ -350,7 +404,6 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1200, 800)
 
         # Ensure menu bar is visible with KDE global menu
-        # Add these lines:
         if hasattr(self, 'menuBar'):
             self.menuBar().setNativeMenuBar(False)
 
@@ -447,11 +500,8 @@ class MainWindow(QMainWindow):
         name, ok = QInputDialog.getText(self, 'Add Node', 'Enter node name:')
         if ok and name:
             is_input = QInputDialog.getItem(self, 'Node Type', 'Select node type:', ['Regular', 'Input'], 0, False)[0] == 'Input'
-            if is_input:
-                self.network_view.grn.add_input_species(name)
-            else:
-                self.network_view.grn.add_species(name, 0.1)
-            self.network_view.add_node(name)
+            self.network_view.start_add_node(name, is_input)
+
 
     def edge_type_changed(self, index):
         # Update edge type in network view (0 = activation, 1 = inhibition)
