@@ -27,6 +27,9 @@ class NetworkNode(QGraphicsEllipseItem):
         self.setAcceptHoverEvents(True)
         self.radius = radius
 
+        # Add label as child item
+        self.label = NodeLabel(name, self)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.setBrush(QBrush(QColor(255, 200, 200)))
@@ -69,6 +72,18 @@ class NetworkNode(QGraphicsEllipseItem):
                     if edge.source_node == self or edge.target_node == self:
                         edge.update_position()
         return super().itemChange(change, value)
+
+class NodeLabel(QGraphicsItem):
+    def __init__(self, text, parent_node):
+        super().__init__(parent_node)
+        self.text = text
+        self.parent_node = parent_node
+
+    def boundingRect(self):
+        return QRectF(-20, -20, 40, 40)
+
+    def paint(self, painter, option, widget):
+        painter.drawText(-10, -10, self.text)
 
 class NetworkEdge(QGraphicsLineItem):
     def __init__(self, source_node, target_node, edge_type=1):
@@ -195,9 +210,6 @@ class NetworkView(QGraphicsView):
         self.scene.addItem(node)
         self.nodes[name] = node
 
-        # Add label
-        text = self.scene.addText(name)
-        text.setPos(x-10, y-10)
         return node
 
     def node_clicked(self, node):
