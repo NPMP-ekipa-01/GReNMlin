@@ -9,6 +9,8 @@ from PyQt6.QtGui import QPen, QBrush, QColor, QPainter
 import numpy as np
 from grn import GRN
 import simulator
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 class NetworkNode(QGraphicsEllipseItem):
     def __init__(self, name, x, y, radius=20):
@@ -313,6 +315,31 @@ class SimulationPanel(QWidget):
         layout.addStretch()
         self.setLayout(layout)
 
+class SimulationResultsDialog(QWidget):
+    def __init__(self, time_points, results, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Simulation Results")
+        self.setGeometry(100, 100, 800, 600)
+        
+        layout = QVBoxLayout()
+        
+        # Create matplotlib figure
+        fig = Figure(figsize=(8, 6))
+        canvas = FigureCanvas(fig)
+        layout.addWidget(canvas)
+        
+        # Plot results
+        ax = fig.add_subplot(111)
+        for species_name, values in results.items():
+            ax.plot(time_points, values, label=species_name)
+            
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Concentration')
+        ax.set_title('Species Concentrations over Time')
+        ax.legend()
+        
+        self.setLayout(layout)
+        
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -394,10 +421,13 @@ class MainWindow(QMainWindow):
     def add_node_dialog(self):
         name, ok = QInputDialog.getText(self, 'Add Node', 'Enter node name:')
         if ok and name:
+            is_input = QInputDialog.getItem(self, 'Node Type', 'Select node type:', ['Regular', 'Input'], 0, False)[0] == 'Input'
+            if is_input:
+                self.network_view.grn.add_input_species(name)
+            else:
+                self.network_view.grn.add_species(name, 0.1)
             self.network_view.add_node(name)
-            # Add to GRN
-            self.network_view.grn.add_species(name, 0.1)  # Default degradation rate
-            
+
     def edge_type_changed(self, index):
         # Update edge type in network view (0 = activation, 1 = inhibition)
         self.network_view.edge_type = 1 if index == 0 else -1
@@ -405,8 +435,54 @@ class MainWindow(QMainWindow):
     def run_simulation(self):
         grn = self.network_view.grn
         sim_time = self.simulation_panel.time_spin.value()
-        # TODO: Implement actual simulation call and visualization
-        pass
+        
+        # Make sure we have some nodes
+        if not grn.species:
+            print("Please add some nodes to the network first.")
+            return
+            
+        # Debug print
+        print("\nNetwork state before simulation:")
+        print("Species:", grn.species)
+        print("Input species:", grn.input_species_names)
+        print("Genes:", grn.genes)
+        print()
+            
+        # Get initial conditions and species names
+        initial_state = []
+        species_names = []
+        for species in grn.species:
+            species_names.append(species['name'])
+            if species['name'] in grn.input_species_names:
+                initial_state.append(10.0)  # Default input value
+            else:
+                initial_state.append(0.0)
+        
+        # Run simulation
+        try:
+            # First generate the model
+            grn.generate_model()
+            # Then simulate
+            time_points, results = simulator.simulate_single(
+                grn, 
+                initial_state, 
+                t_end=sim_time, 
+                plot_on=False
+            )
+            
+            # Convert results to dictionary for plotting
+            results_dict = {}
+            for i, name in enumerate(species_names):
+                results_dict[name] = results[:, i]
+            
+            # Show results in new window
+            dialog = SimulationResultsDialog(time_points, results_dict, self)
+            dialog.show()
+        except Exception as e:
+            print(f"Simulation error: {str(e)}")
+            # Print more detailed error information
+            import traceback
+            traceback.print_exc()
 
     def toggle_edge_mode(self, enabled):
         self.network_view.set_edge_mode(enabled)
