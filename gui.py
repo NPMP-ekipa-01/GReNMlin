@@ -1,44 +1,86 @@
 import sys
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QHBoxLayout, QLabel, QPushButton, QDockWidget,
-                           QSpinBox, QDoubleSpinBox, QComboBox, QTabWidget)
-from PyQt6.QtCore import Qt
-import networkx as nx
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+                           QSpinBox, QDoubleSpinBox, QComboBox, QTabWidget,
+                           QGraphicsScene, QGraphicsView, QGraphicsItem,
+                           QGraphicsEllipseItem, QGraphicsLineItem, QInputDialog)
+from PyQt6.QtCore import Qt, QPointF, QRectF
+from PyQt6.QtGui import QPen, QBrush, QColor, QPainter
 import numpy as np
 from grn import GRN
 import simulator
 
-class NetworkCanvas(FigureCanvas):
-    def __init__(self, parent=None, width=5, height=4, dpi=100):
-        fig = Figure(figsize=(width, height), dpi=dpi)
-        self.axes = fig.add_subplot(111)
-        super(NetworkCanvas, self).__init__(fig)
-        self.setParent(parent)
-        self.grn = GRN()  # Initialize GRN instance
-        self.network = nx.DiGraph()
-        self.update_network_from_grn()
-        self.draw_network()
-
-    def update_network_from_grn(self):
-        self.network.clear()
-        # Add all species as nodes
-        for species in self.grn.species:
-            self.network.add_node(species['name'])
+class NetworkNode(QGraphicsEllipseItem):
+    def __init__(self, name, x, y, radius=20):
+        super().__init__(0, 0, radius*2, radius*2)
+        self.name = name
+        self.setPos(x-radius, y-radius)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.setBrush(QBrush(QColor(200, 220, 255)))
+        self.setPen(QPen(Qt.GlobalColor.black))
+        self.setAcceptHoverEvents(True)
         
-        # Add edges from genes
-        for gene in self.grn.genes:
-            for product in gene['products']:
-                for regulator in gene['regulators']:
-                    self.network.add_edge(regulator['name'], product['name'])
+    def mousePressEvent(self, event):
+        self.setBrush(QBrush(QColor(255, 200, 200)))
+        super().mousePressEvent(event)
+        
+    def mouseReleaseEvent(self, event):
+        self.setBrush(QBrush(QColor(200, 220, 255)))
+        super().mouseReleaseEvent(event)
 
-    def draw_network(self):
-        self.axes.clear()
-        pos = nx.spring_layout(self.network)
-        nx.draw(self.network, pos, ax=self.axes, with_labels=True, 
-                node_color='lightblue', node_size=500, arrowsize=20)
-        self.draw()
+class NetworkView(QGraphicsView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.scene = QGraphicsScene(self)
+        self.setScene(self.scene)
+        self.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        
+        # Initialize GRN
+        self.grn = GRN()
+        self.nodes = {}
+        
+    def add_node(self, name, x=None, y=None):
+        if x is None:
+            x = np.random.uniform(0, self.width())
+        if y is None:
+            y = np.random.uniform(0, self.height())
+            
+        node = NetworkNode(name, x, y)
+        self.scene.addItem(node)
+        self.nodes[name] = node
+        
+        # Add label
+        text = self.scene.addText(name)
+        text.setPos(x-10, y-10)
+        return node
+
+    def wheelEvent(self, event):
+        # Zoom in/out with mouse wheel
+        zoomInFactor = 1.25
+        zoomOutFactor = 1 / zoomInFactor
+
+        # Save the scene pos
+        oldPos = self.mapToScene(event.position().toPoint())
+
+        # Zoom
+        if event.angleDelta().y() > 0:
+            zoomFactor = zoomInFactor
+        else:
+            zoomFactor = zoomOutFactor
+        self.scale(zoomFactor, zoomFactor)
+
+        # Get the new position
+        newPos = self.mapToScene(event.position().toPoint())
+
+        # Move scene to old position
+        delta = newPos - oldPos
+        self.translate(delta.x(), delta.y())
 
 class ParameterPanel(QWidget):
     def __init__(self):
@@ -109,12 +151,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         layout = QHBoxLayout(main_widget)
 
-        # Create network visualization
-        self.network_canvas = NetworkCanvas(self)
-        layout.addWidget(self.network_canvas)
+        # Create network view
+        self.network_view = NetworkView()
+        layout.addWidget(self.network_view)
 
         # Create right panel with tabs
         right_panel = QTabWidget()
+        right_panel.setMaximumWidth(300)
         
         # Add parameter panel
         self.parameter_panel = ParameterPanel()
@@ -145,20 +188,24 @@ class MainWindow(QMainWindow):
         # Edit menu
         edit_menu = menubar.addMenu("Edit")
         add_node_action = edit_menu.addAction("Add Node")
+        add_node_action.triggered.connect(self.add_node_dialog)
         add_edge_action = edit_menu.addAction("Add Edge")
         
         # View menu
         view_menu = menubar.addMenu("View")
         reset_view_action = view_menu.addAction("Reset View")
+        reset_view_action.triggered.connect(self.network_view.resetTransform)
+
+    def add_node_dialog(self):
+        name, ok = QInputDialog.getText(self, 'Add Node', 'Enter node name:')
+        if ok and name:
+            self.network_view.add_node(name)
+            # Add to GRN
+            self.network_view.grn.add_species(name, 0.1)  # Default degradation rate
 
     def run_simulation(self):
-        # Get current GRN from network canvas
-        grn = self.network_canvas.grn
-        
-        # Get simulation time
+        grn = self.network_view.grn
         sim_time = self.simulation_panel.time_spin.value()
-        
-        # Run simulation using simulator module
         # TODO: Implement actual simulation call and visualization
         pass
 
