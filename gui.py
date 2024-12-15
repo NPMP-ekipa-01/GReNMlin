@@ -27,6 +27,7 @@ class NetworkNode(QGraphicsEllipseItem):
         self.setPen(QPen(Qt.GlobalColor.black))
         self.setAcceptHoverEvents(True)
         self.radius = radius
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
 
         # Add label as child item
         self.label = NodeLabel(name, self)
