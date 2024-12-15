@@ -1,20 +1,25 @@
-import sys
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-                           QHBoxLayout, QLabel, QPushButton, QDockWidget,
-                           QSpinBox, QDoubleSpinBox, QComboBox, QTabWidget,
-                           QGraphicsScene, QGraphicsView, QGraphicsItem,
-                           QGraphicsEllipseItem, QGraphicsLineItem, QInputDialog, QFileDialog,
-                           QDialog, QLineEdit, QDialogButtonBox, QRadioButton, QButtonGroup)
-from PyQt6.QtCore import Qt, QPointF, QRectF
-from PyQt6.QtWidgets import QMessageBox
-from PyQt6.QtCore import QSettings
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainter, QPalette
-import numpy as np
-from grn import GRN
-import simulator
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
 import json
+import sys
+
+import numpy as np
+from matplotlib.figure import Figure
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen
+from PyQt6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog,
+                             QDialogButtonBox, QDoubleSpinBox, QFileDialog,
+                             QGraphicsEllipseItem, QGraphicsItem,
+                             QGraphicsLineItem, QGraphicsScene, QGraphicsView,
+                             QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+                             QMessageBox, QPushButton, QRadioButton,
+                             QTabWidget, QVBoxLayout, QWidget)
+
+# Needs to be imported after Qt
+from matplotlib.backends.backend_qt5agg import \
+    FigureCanvasQTAgg as FigureCanvas
+
+import simulator
+from grn import GRN
+
 
 class NetworkNode(QGraphicsEllipseItem):
     def __init__(self, name, x, y, radius=20):
