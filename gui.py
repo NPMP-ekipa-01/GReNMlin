@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore import QSettings
-from PyQt6.QtGui import QPen, QBrush, QColor, QPainter
+from PyQt6.QtGui import QPen, QBrush, QColor, QPainter, QPalette
 import numpy as np
 from grn import GRN
 import simulator
@@ -23,18 +23,38 @@ class NetworkNode(QGraphicsEllipseItem):
         self.setPos(x-radius, y-radius)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
-        self.setBrush(QBrush(QColor(200, 220, 255)))
-        self.setPen(QPen(Qt.GlobalColor.black))
-        self.setAcceptHoverEvents(True)
-        self.radius = radius
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
+        
+        self.radius = radius
+        self.setAcceptHoverEvents(True)
 
         # Add label as child item
         self.label = NodeLabel(name, self)
+        
+        # Initialize colors
+        self.update_colors()
+        
+        # Connect to application's palette change signal
+        app = QApplication.instance()
+        app.paletteChanged.connect(self.update_colors)
+
+    def update_colors(self):
+        app = QApplication.instance()
+        self.base_color = app.palette().color(QPalette.ColorRole.Base)
+        self.text_color = app.palette().color(QPalette.ColorRole.Text)
+        self.highlight_color = app.palette().color(QPalette.ColorRole.Highlight)
+        
+        # Update current colors
+        self.setBrush(QBrush(self.base_color))
+        self.setPen(QPen(self.text_color))
+        
+        # Force a redraw
+        if self.scene():
+            self.scene().update()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.setBrush(QBrush(QColor(255, 200, 200)))
+            self.setBrush(QBrush(self.highlight_color.lighter()))
             if isinstance(self.scene().views()[0], NetworkView):
                 view = self.scene().views()[0]
                 if view.edge_mode:
@@ -43,23 +63,23 @@ class NetworkNode(QGraphicsEllipseItem):
                     super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        self.setBrush(QBrush(QColor(200, 220, 255)))
+        self.setBrush(QBrush(self.base_color))
         if not self.scene().views()[0].edge_mode:
             super().mouseReleaseEvent(event)
 
     def hoverEnterEvent(self, event):
-        self.setBrush(QBrush(QColor(220, 240, 255)))  # Highlight on hover
+        self.setBrush(QBrush(self.base_color.lighter()))  # Highlight on hover
         if isinstance(self.scene().views()[0], NetworkView):
             view = self.scene().views()[0]
             if view.edge_mode and view.source_node and view.source_node != self:
-                self.setBrush(QBrush(QColor(200, 255, 200)))  # Green highlight for valid target
+                self.setBrush(QBrush(self.highlight_color))  # Highlight for valid target
                 view.complete_edge(self)
                 event.accept()
                 return
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        self.setBrush(QBrush(QColor(200, 220, 255)))  # Reset color
+        self.setBrush(QBrush(self.base_color))  # Reset color
         super().hoverLeaveEvent(event)
 
     def center(self):
@@ -80,11 +100,22 @@ class NodeLabel(QGraphicsItem):
         super().__init__(parent_node)
         self.text = text
         self.parent_node = parent_node
+        
+        # Connect to palette changes
+        app = QApplication.instance()
+        app.paletteChanged.connect(self.update_colors)
+        self.update_colors()
+
+    def update_colors(self):
+        self.text_color = QApplication.instance().palette().color(QPalette.ColorRole.Text)
+        if self.scene():
+            self.scene().update()
 
     def boundingRect(self):
         return QRectF(-20, -20, 40, 40)
 
     def paint(self, painter, option, widget):
+        painter.setPen(QPen(self.text_color))
         painter.drawText(-10, -10, self.text)
 
 class NetworkEdge(QGraphicsLineItem):
@@ -93,9 +124,31 @@ class NetworkEdge(QGraphicsLineItem):
         self.source_node = source_node
         self.target_node = target_node
         self.edge_type = edge_type  # 1 for activation, -1 for inhibition
-        self.setPen(QPen(QColor('blue' if edge_type == 1 else 'red'), 2))
+        
+        # Connect to palette changes
+        app = QApplication.instance()
+        app.paletteChanged.connect(self.update_colors)
+        
         self.setZValue(-1)  # Draw edges behind nodes
+        self.update_colors()
         self.update_position()
+
+    def update_colors(self):
+        app = QApplication.instance()
+        palette = app.palette()
+        
+        if self.edge_type == 1:
+            edge_color = palette.color(QPalette.ColorRole.Link) if palette.color(QPalette.ColorRole.Link).isValid() \
+                else palette.color(QPalette.ColorRole.Highlight)
+        else:
+            if palette.color(QPalette.ColorRole.Base).lightness() > 128:
+                edge_color = QColor(200, 0, 0)  # Darker red for light theme
+            else:
+                edge_color = QColor(255, 80, 80)  # Lighter red for dark theme
+        
+        self.setPen(QPen(edge_color, 2))
+        if self.scene():
+            self.scene().update()
 
     def update_position(self):
         if not (self.source_node and self.target_node):
