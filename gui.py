@@ -3,7 +3,8 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QLabel, QPushButton, QDockWidget,
                            QSpinBox, QDoubleSpinBox, QComboBox, QTabWidget,
                            QGraphicsScene, QGraphicsView, QGraphicsItem,
-                           QGraphicsEllipseItem, QGraphicsLineItem, QInputDialog, QFileDialog)
+                           QGraphicsEllipseItem, QGraphicsLineItem, QInputDialog, QFileDialog,
+                           QDialog, QLineEdit, QDialogButtonBox)
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore import QSettings
@@ -509,11 +510,43 @@ class MainWindow(QMainWindow):
         reset_view_action.triggered.connect(self.network_view.resetTransform)
 
     def add_node_dialog(self):
-        name, ok = QInputDialog.getText(self, 'Add Node', 'Enter node name:')
-        if ok and name:
-            is_input = QInputDialog.getItem(self, 'Node Type', 'Select node type:', ['Regular', 'Input'], 0, False)[0] == 'Input'
-            self.network_view.start_add_node(name, is_input)
+        # Create a custom dialog with both name input and node type selection
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Add Node')
+        layout = QVBoxLayout()
 
+        # Add name input
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel('Node name:'))
+        name_input = QLineEdit()
+        name_layout.addWidget(name_input)
+        layout.addLayout(name_layout)
+
+        # Add type selection
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel('Node type:'))
+        type_combo = QComboBox()
+        type_combo.addItems(['Regular', 'Input'])
+        type_layout.addWidget(type_combo)
+        layout.addLayout(type_layout)
+
+        # Add buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        dialog.setLayout(layout)
+
+        # Show dialog and process result
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = name_input.text()
+            if name:  # Only proceed if a name was entered
+                node_type = 'Input' if type_combo.currentText() == 'Input' else 'Regular'
+                self.network_view.start_add_node(name, node_type)
 
     def edge_type_changed(self, index):
         # Update edge type in network view (0 = activation, 1 = inhibition)
