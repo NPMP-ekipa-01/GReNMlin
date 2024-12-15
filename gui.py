@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QSpinBox, QDoubleSpinBox, QComboBox, QTabWidget,
                            QGraphicsScene, QGraphicsView, QGraphicsItem,
                            QGraphicsEllipseItem, QGraphicsLineItem, QInputDialog, QFileDialog,
-                           QDialog, QLineEdit, QDialogButtonBox)
+                           QDialog, QLineEdit, QDialogButtonBox, QRadioButton, QButtonGroup)
 from PyQt6.QtCore import Qt, QPointF, QRectF
 from PyQt6.QtWidgets import QMessageBox
 from PyQt6.QtCore import QSettings
@@ -522,12 +522,22 @@ class MainWindow(QMainWindow):
         name_layout.addWidget(name_input)
         layout.addLayout(name_layout)
 
-        # Add type selection
+        # Add type selection with radio buttons
         type_layout = QHBoxLayout()
         type_layout.addWidget(QLabel('Node type:'))
-        type_combo = QComboBox()
-        type_combo.addItems(['Regular', 'Input'])
-        type_layout.addWidget(type_combo)
+        
+        # Create radio buttons
+        regular_radio = QRadioButton('Regular')
+        input_radio = QRadioButton('Input')
+        regular_radio.setChecked(True)  # Set Regular as default
+        
+        # Add radio buttons to a button group
+        button_group = QButtonGroup()
+        button_group.addButton(regular_radio)
+        button_group.addButton(input_radio)
+        
+        type_layout.addWidget(regular_radio)
+        type_layout.addWidget(input_radio)
         layout.addLayout(type_layout)
 
         # Add buttons
@@ -545,7 +555,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name = name_input.text()
             if name:  # Only proceed if a name was entered
-                node_type = 'Input' if type_combo.currentText() == 'Input' else 'Regular'
+                node_type = 'Input' if input_radio.isChecked() else 'Regular'
                 self.network_view.start_add_node(name, node_type)
 
     def edge_type_changed(self, index):
