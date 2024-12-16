@@ -248,10 +248,10 @@ class NetworkView(QGraphicsView):
             self.status_message.emit("")
         elif self.mode == EditMode.ADDING_EDGE:
             self.setCursor(Qt.CursorShape.CrossCursor)
-            self.status_message.emit("Click on source node to start edge creation")
+            self.status_message.emit("Click and drag from source node to create edge")
         elif self.mode == EditMode.ADDING_NODE:
             self.setCursor(Qt.CursorShape.CrossCursor)
-            if self.node_type_to_add and self.node_name_to_add:  # Add safety check
+            if self.node_type_to_add and self.node_name_to_add:
                 self.status_message.emit(
                     f"Click to place {self.node_type_to_add.lower()} node '{self.node_name_to_add}' (Press Esc to cancel)")
             else:
@@ -328,7 +328,7 @@ class NetworkView(QGraphicsView):
                 self.temp_line.setPen(QPen(
                     QColor('blue' if self.edge_type == 1 else 'red'), 2))
                 self.scene.addItem(self.temp_line)
-                self.status_message.emit("Click on target node to complete edge")
+                self.status_message.emit("Drag to target node to create edge")
 
     def complete_edge(self, target_node):
         """Complete edge creation and reset state"""
@@ -406,6 +406,8 @@ class NetworkView(QGraphicsView):
                 self.source_node = None
                 self.temp_line = None
                 self.mode = EditMode.ADDING_EDGE  # Stay in edge mode
+                # Return to original message
+                self.status_message.emit("Click and drag from source node to create edge")
             
             # Reset all node colors
             for node in self.nodes.values():
