@@ -828,7 +828,11 @@ class NetworkStateDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"{APP_NAME} - {APP_DESCRIPTION}")
+
+        # Track currently opened file
+        self.current_file = None
+        self.update_title()  # Initial title setup
+
         self.setGeometry(100, 100, 1200, 800)
 
         # Set application icon
@@ -874,12 +878,18 @@ class MainWindow(QMainWindow):
         # Connect signals
         self.simulation_panel.run_button.clicked.connect(self.run_simulation)
 
-        # Track currently opened file
-        self.current_file = None
-
         # Connect network view signals
         self.network_view.mode_changed.connect(self._handle_mode_change)
         self.network_view.status_message.connect(self.statusBar().showMessage)
+
+    def update_title(self):
+        """Update window title based on current file"""
+        if self.current_file:
+            # Get just the filename without path
+            filename = os.path.basename(self.current_file)
+            self.setWindowTitle(f"{filename} - {APP_NAME}")
+        else:
+            self.setWindowTitle(f"{APP_NAME} - {APP_DESCRIPTION}")
 
     def setup_toolbar(self):
         toolbar = self.addToolBar("Edit")
@@ -1080,6 +1090,7 @@ class MainWindow(QMainWindow):
             self.network_view.edges.clear()
             self.network_view.grn = GRN()
             self.current_file = None
+            self.update_title()  # Reset title to default
 
     def save_network(self, save_as=False):
         """Save the current network to a file"""
@@ -1095,6 +1106,7 @@ class MainWindow(QMainWindow):
             if not file_name.endswith('.grn'):
                 file_name += '.grn'
             self.current_file = file_name
+            self.update_title()  # Update title with new filename
 
         try:
             # Create network data structure
@@ -1184,6 +1196,7 @@ class MainWindow(QMainWindow):
             self.network_view.grn.genes = network_data['grn']['genes']
 
             self.current_file = file_name
+            self.update_title()  # Update title with new filename
             self.statusBar().showMessage(f"Network loaded from {file_name}", 3000)
 
         except Exception as e:
