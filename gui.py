@@ -838,7 +838,7 @@ class MainWindow(QMainWindow):
             QApplication.instance().setWindowIcon(QIcon(icon_path))
 
         # Ensure menu bar is visible with KDE global menu
-        if hasattr(self, 'menuBar'):
+        if os.environ.get('XDG_CURRENT_DESKTOP', '').lower() == 'kde' and hasattr(self, 'menuBar'):
             self.menuBar().setNativeMenuBar(False)
 
         # Create main widget and layout
