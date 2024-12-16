@@ -3,7 +3,7 @@ import sys
 
 import numpy as np
 from matplotlib.figure import Figure
-from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog,
                              QDialogButtonBox, QDoubleSpinBox, QFileDialog,
@@ -19,6 +19,7 @@ from matplotlib.backends.backend_qt5agg import \
 
 import simulator
 from grn import GRN
+from enum import Enum
 
 
 class NetworkNode(QGraphicsEllipseItem):
@@ -62,25 +63,22 @@ class NetworkNode(QGraphicsEllipseItem):
             self.setBrush(QBrush(self.highlight_color.lighter()))
             if isinstance(self.scene().views()[0], NetworkView):
                 view = self.scene().views()[0]
-                if view.edge_mode:
+                if view.mode == EditMode.ADDING_EDGE:
                     view.node_clicked(self)
                 else:
                     super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         self.setBrush(QBrush(self.base_color))
-        if not self.scene().views()[0].edge_mode:
+        if self.scene().views()[0].mode != EditMode.ADDING_EDGE:
             super().mouseReleaseEvent(event)
 
     def hoverEnterEvent(self, event):
         self.setBrush(QBrush(self.base_color.lighter()))  # Highlight on hover
         if isinstance(self.scene().views()[0], NetworkView):
             view = self.scene().views()[0]
-            if view.edge_mode and view.source_node and view.source_node != self:
+            if view.mode == EditMode.ADDING_EDGE and view.source_node and view.source_node != self:
                 self.setBrush(QBrush(self.highlight_color))  # Highlight for valid target
-                view.complete_edge(self)
-                event.accept()
-                return
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
@@ -183,7 +181,16 @@ class NetworkEdge(QGraphicsLineItem):
 
         self.setLine(start_x, start_y, end_x, end_y)
 
+class EditMode(Enum):
+    NORMAL = 0
+    ADDING_NODE = 1
+    ADDING_EDGE = 2
+
 class NetworkView(QGraphicsView):
+    # Add signals
+    mode_changed = pyqtSignal(EditMode)
+    status_message = pyqtSignal(str)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.scene = QGraphicsScene(self)
@@ -200,31 +207,66 @@ class NetworkView(QGraphicsView):
         self.nodes = {}
         self.edges = []
 
-        # Edge drawing state
-        self.edge_mode = False
+        # Replace edge drawing state with mode state
+        self._mode = EditMode.NORMAL
         self.source_node = None
         self.temp_line = None
         self.edge_type = 1  # 1 for activation, -1 for inhibition
 
-        # Add new state variables
-        self.adding_node = False
-        self.node_type_to_add = None  # Will store whether it's a regular or input node
+        # Node addition state
+        self.node_type_to_add = None
         self.node_name_to_add = None
 
+    @property
+    def mode(self):
+        return self._mode
+
+    @mode.setter
+    def mode(self, new_mode):
+        if self._mode != new_mode:
+            self._mode = new_mode
+            self._handle_mode_change()
+            self.mode_changed.emit(new_mode)
+
+    def _handle_mode_change(self):
+        """Handle state changes when mode changes"""
+        # Clean up any temporary items
+        if self.temp_line:
+            self.scene.removeItem(self.temp_line)
+            self.temp_line = None
+        
+        self.source_node = None
+        
+        # Update node dragging flags
+        for node in self.nodes.values():
+            node.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, 
+                        self.mode == EditMode.NORMAL)
+
+        # Update cursor and status message
+        if self.mode == EditMode.NORMAL:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+            self.status_message.emit("")
+        elif self.mode == EditMode.ADDING_EDGE:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            self.status_message.emit("Click on source node to start edge creation")
+        elif self.mode == EditMode.ADDING_NODE:
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            if self.node_type_to_add and self.node_name_to_add:  # Add safety check
+                self.status_message.emit(
+                    f"Click to place {self.node_type_to_add.lower()} node '{self.node_name_to_add}' (Press Esc to cancel)")
+            else:
+                self.status_message.emit("Click to place node (Press Esc to cancel)")
+
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape and self.adding_node:
-            # Cancel node addition
-            self.adding_node = False
+        if event.key() == Qt.Key.Key_Escape:
+            self.mode = EditMode.NORMAL
             self.node_type_to_add = None
             self.node_name_to_add = None
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-            if isinstance(self.parent(), MainWindow):
-                self.parent().statusBar().clearMessage()
         else:
             super().keyPressEvent(event)
 
     def mousePressEvent(self, event):
-        if self.adding_node and event.button() == Qt.MouseButton.LeftButton:
+        if self.mode == EditMode.ADDING_NODE and event.button() == Qt.MouseButton.LeftButton:
             # Get click position in scene coordinates
             scene_pos = self.mapToScene(event.pos())
             x, y = scene_pos.x(), scene_pos.y()
@@ -238,7 +280,7 @@ class NetworkView(QGraphicsView):
             self.add_node(self.node_name_to_add, x, y)
 
             # Reset node adding state
-            self.adding_node = False
+            self.mode = EditMode.NORMAL
             self.node_type_to_add = None
             self.node_name_to_add = None
 
@@ -251,14 +293,18 @@ class NetworkView(QGraphicsView):
 
     def start_add_node(self, node_name, node_type):
         """Start the process of adding a node"""
-        self.adding_node = True
+        # Clean up any ongoing edge creation first
+        if self.mode == EditMode.ADDING_EDGE:
+            if self.temp_line:
+                self.scene.removeItem(self.temp_line)
+            self.temp_line = None
+            self.source_node = None
+        
+        # Set the node properties
         self.node_name_to_add = node_name
         self.node_type_to_add = node_type
-        self.setCursor(Qt.CursorShape.CrossCursor)
-        #fixme message isn't displayed
-        if isinstance(self.parent(), MainWindow):
-            self.parent().statusBar().showMessage(
-                f"Click on the canvas to place the new {node_type.lower()} node '{node_name}' (Press Esc to cancel)")
+        # Change to node adding mode
+        self.mode = EditMode.ADDING_NODE
 
     def add_node(self, name, x=None, y=None):
         if x is None:
@@ -273,32 +319,36 @@ class NetworkView(QGraphicsView):
         return node
 
     def node_clicked(self, node):
-        if self.source_node is None:
-            # Start edge creation
-            self.source_node = node
-            self.temp_line = QGraphicsLineItem()
-            self.temp_line.setPen(QPen(QColor('blue' if self.edge_type == 1 else 'red'), 2))
-            self.scene.addItem(self.temp_line)
+        """Handle node clicks based on current mode"""
+        if self.mode == EditMode.ADDING_EDGE:
+            if self.source_node is None:
+                # Start edge creation
+                self.source_node = node
+                self.temp_line = QGraphicsLineItem()
+                self.temp_line.setPen(QPen(
+                    QColor('blue' if self.edge_type == 1 else 'red'), 2))
+                self.scene.addItem(self.temp_line)
+                self.status_message.emit("Click on target node to complete edge")
 
     def complete_edge(self, target_node):
+        """Complete edge creation and reset state"""
         if self.source_node and self.source_node != target_node:
             edge = NetworkEdge(self.source_node, target_node, self.edge_type)
             self.scene.addItem(edge)
             self.edges.append(edge)
 
             # Update GRN
-            regulator = {'name': self.source_node.name,
-                        'type': self.edge_type,
-                        'Kd': 5,  # Default values
-                        'n': 2}
+            regulator = {
+                'name': self.source_node.name,
+                'type': self.edge_type,
+                'Kd': 5,
+                'n': 2
+            }
             product = {'name': target_node.name}
             self.grn.add_gene(10, [regulator], [product])
 
-            # Clean up
-            if self.temp_line:
-                self.scene.removeItem(self.temp_line)
-            self.source_node = None
-            self.temp_line = None
+            # Reset state
+            self.mode = EditMode.NORMAL
 
     def mouseMoveEvent(self, event):
         if self.source_node and self.temp_line:
@@ -323,26 +373,39 @@ class NetworkView(QGraphicsView):
 
                 self.temp_line.setLine(start_x, start_y, mouse_pos.x(), mouse_pos.y())
 
-            # Check if mouse is over a potential target node
+            # Only highlight potential target nodes, don't complete edge yet
             items = self.items(event.pos())
             for item in items:
                 if isinstance(item, NetworkNode) and item != self.source_node:
                     item.setBrush(QBrush(QColor(200, 255, 200)))  # Green highlight
-                    self.complete_edge(item)
                     return
 
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        # Cancel edge creation if released on empty space
         if event.button() == Qt.MouseButton.LeftButton and self.source_node:
-            if self.temp_line:
-                self.scene.removeItem(self.temp_line)
-            self.source_node = None
-            self.temp_line = None
+            # Check if released over a valid target node
+            items = self.items(event.pos())
+            target_node = None
+            for item in items:
+                if isinstance(item, NetworkNode) and item != self.source_node:
+                    target_node = item
+                    break
+            
+            if target_node:
+                self.complete_edge(target_node)
+            else:
+                # Clean up if not released over a valid target
+                if self.temp_line:
+                    self.scene.removeItem(self.temp_line)
+                self.source_node = None
+                self.temp_line = None
+                self.mode = EditMode.ADDING_EDGE  # Stay in edge mode
+            
             # Reset all node colors
             for node in self.nodes.values():
-                node.setBrush(QBrush(QColor(200, 220, 255)))
+                node.update_colors()  # Use the node's color update method
+                
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
@@ -368,23 +431,8 @@ class NetworkView(QGraphicsView):
         self.translate(delta.x(), delta.y())
 
     def set_edge_mode(self, enabled):
-        self.edge_mode = enabled
-        # Update cursor to indicate mode
-        if enabled:
-            self.setCursor(Qt.CursorShape.CrossCursor)
-            # Disable node dragging in edge mode
-            for node in self.nodes.values():
-                node.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
-        else:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-            # Re-enable node dragging
-            for node in self.nodes.values():
-                node.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-            # Clean up any ongoing edge creation
-            if self.temp_line:
-                self.scene.removeItem(self.temp_line)
-            self.source_node = None
-            self.temp_line = None
+        """Toggle edge creation mode"""
+        self.mode = EditMode.ADDING_EDGE if enabled else EditMode.NORMAL
 
 class ParameterPanel(QWidget):
     def __init__(self):
@@ -515,6 +563,10 @@ class MainWindow(QMainWindow):
         # Track currently opened file
         self.current_file = None
 
+        # Connect network view signals
+        self.network_view.mode_changed.connect(self._handle_mode_change)
+        self.network_view.status_message.connect(self.statusBar().showMessage)
+
     def setup_toolbar(self):
         toolbar = self.addToolBar("Edit")
 
@@ -569,6 +621,10 @@ class MainWindow(QMainWindow):
         reset_view_action.triggered.connect(self.network_view.resetTransform)
 
     def add_node_dialog(self):
+        # If we're in edge mode, uncheck the edge button first
+        if self.network_view.mode == EditMode.ADDING_EDGE:
+            self.add_edge_action.setChecked(False)
+            
         # Create a custom dialog with both name input and node type selection
         dialog = QDialog(self)
         dialog.setWindowTitle('Add Node')
@@ -675,8 +731,6 @@ class MainWindow(QMainWindow):
 
     def toggle_edge_mode(self, enabled):
         self.network_view.set_edge_mode(enabled)
-
-
 
     def new_network(self):
         """Create a new empty network"""
@@ -816,6 +870,11 @@ class MainWindow(QMainWindow):
                 event.accept()
             else:
                 event.ignore()
+
+    def _handle_mode_change(self, mode):
+        """Handle network view mode changes"""
+        # Update toolbar actions
+        self.add_edge_action.setChecked(mode == EditMode.ADDING_EDGE)
 
 def main():
     app = QApplication(sys.argv)
