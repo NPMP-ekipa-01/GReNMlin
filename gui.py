@@ -837,6 +837,68 @@ class NetworkStateDialog(QDialog):
 
         self.setLayout(layout)
 
+class StartupDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.setWindowTitle(f"Welcome to {APP_NAME}")
+        self.setMinimumWidth(400)
+
+        # Set application icon
+        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            QApplication.instance().setWindowIcon(QIcon(icon_path))
+        
+        layout = QVBoxLayout()
+        
+        # Add logo
+        logo_label = QLabel()
+        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        if os.path.exists(icon_path):
+            pixmap = QPixmap(icon_path)
+            scaled_pixmap = pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio, 
+                                        Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(logo_label)
+        
+        # Add welcome text
+        welcome_text = QLabel(f"""
+            <h2>Welcome to {APP_NAME}</h2>
+            <p>{APP_LONG_DESCRIPTION}</p>
+        """)
+        welcome_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        welcome_text.setWordWrap(True)
+        welcome_text.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(welcome_text)
+        
+        # Add buttons
+        button_layout = QVBoxLayout()
+        
+        new_button = QPushButton("Create New Network")
+        new_button.clicked.connect(self.accept_new)
+        button_layout.addWidget(new_button)
+        
+        open_button = QPushButton("Open Existing Network")
+        open_button.clicked.connect(self.accept_open)
+        button_layout.addWidget(open_button)
+        
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+        
+        # Store the result
+        self.result_action = "new"
+    
+    def accept_new(self):
+        self.result_action = "new"
+        self.accept()
+    
+    def accept_open(self):
+        self.result_action = "open"
+        self.accept()
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -847,12 +909,6 @@ class MainWindow(QMainWindow):
         self.update_title()
 
         self.setGeometry(100, 100, 1200, 800)
-
-        # Set application icon
-        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-            QApplication.instance().setWindowIcon(QIcon(icon_path))
 
         # Ensure menu bar is visible with KDE global menu
         if os.environ.get('XDG_CURRENT_DESKTOP', '').lower() == 'kde' and hasattr(self, 'menuBar'):
@@ -1296,9 +1352,16 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+    
+    # Show startup dialog
+    startup = StartupDialog()
+    if startup.exec() == QDialog.DialogCode.Accepted:
+        window = MainWindow()
+        if startup.result_action == "open":
+            # Trigger open file dialog
+            window.load_network()
+        window.show()
+        sys.exit(app.exec())
 
 if __name__ == "__main__":
     main()
