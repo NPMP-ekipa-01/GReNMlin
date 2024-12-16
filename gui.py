@@ -136,6 +136,9 @@ class NetworkNode(QGraphicsEllipseItem):
         rename_action = menu.addAction("Rename")
         delete_action = menu.addAction("Delete")
         
+        # Add toggle input/regular action
+        toggle_type_action = menu.addAction("Set as Regular" if self.is_input else "Set as Input")
+        
         # Get the action that was clicked
         action = menu.exec(event.screenPos())
         
@@ -143,6 +146,8 @@ class NetworkNode(QGraphicsEllipseItem):
             self.rename_node()
         elif action == delete_action:
             self.delete_node()
+        elif action == toggle_type_action:
+            self.toggle_type()
 
     def rename_node(self):
         # Get reference to main window through scene's view
@@ -154,6 +159,11 @@ class NetworkNode(QGraphicsEllipseItem):
         view = self.scene().views()[0]
         if isinstance(view, NetworkView):
             view.delete_node(self)
+
+    def toggle_type(self):
+        view = self.scene().views()[0]
+        if isinstance(view, NetworkView):
+            view.toggle_node_type(self)
 
 class NodeLabel(QGraphicsItem):
     def __init__(self, text, parent_node):
@@ -633,6 +643,37 @@ class NetworkView(QGraphicsView):
             
             # Force scene update
             self.scene.update()
+
+    def toggle_node_type(self, node):
+        """Toggle a node between input and regular type"""
+        if node.is_input:
+            # Converting from input to regular
+            if node.name in self.grn.input_species_names:
+                self.grn.input_species_names.remove(node.name)
+                # Add as regular species with default delta
+                for species in self.grn.species:
+                    if species['name'] == node.name:
+                        species['delta'] = 0.1  # Default degradation rate
+                        break
+        else:
+            # Converting from regular to input
+            if node.name not in self.grn.input_species_names:
+                self.grn.input_species_names.append(node.name)
+                # Remove degradation rate as it's not applicable to input species
+                for species in self.grn.species:
+                    if species['name'] == node.name:
+                        if 'delta' in species:
+                            del species['delta']
+                        break
+        
+        # Toggle the is_input flag
+        node.is_input = not node.is_input
+        
+        # Update node appearance
+        node.update_colors()
+        
+        # Force scene update
+        self.scene.update()
 
 class ParameterPanel(QWidget):
     def __init__(self):
