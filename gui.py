@@ -63,6 +63,34 @@ import simulator
 from grn import GRN
 
 
+class EditMode(Enum):
+    """
+    Enumeration of possible editing modes for the network view.
+
+    Values:
+        `NORMAL`: Default mode - allows node movement and selection
+        `ADDING_NODE`: Mode for adding new nodes to the network
+        `ADDING_EDGE`: Mode for creating edges between nodes
+    """
+
+    NORMAL = 0
+    ADDING_NODE = 1
+    ADDING_EDGE = 2
+
+
+class EdgeType(Enum):
+    """
+    Enumeration of possible edge types in the network.
+
+    Values:
+        `ACTIVATION`: Positive regulation (shown as blue/highlight colored edge)
+        `INHIBITION`: Negative regulation (shown as red edge)
+    """
+
+    ACTIVATION = 1
+    INHIBITION = -1
+
+
 class NetworkNode(QGraphicsEllipseItem):
     """
     Represents a node in the gene regulatory network visualization.
@@ -301,22 +329,22 @@ class NetworkEdge(QGraphicsLineItem):
     Attributes:
         `source_node` (NetworkNode): The node where the edge starts
         `target_node` (NetworkNode): The node where the edge ends
-        `edge_type` (int): 1 for activation, -1 for inhibition
+        `edge_type` (EdgeType): The type of regulation (ACTIVATION or INHIBITION)
     """
 
-    def __init__(self, source_node, target_node, edge_type=1):
+    def __init__(self, source_node, target_node, edge_type=EdgeType.ACTIVATION):
         """
         Initialize a new network edge.
 
         Args:
             `source_node` (NetworkNode): The node where the edge starts
             `target_node` (NetworkNode): The node where the edge ends
-            `edge_type` (int, optional): 1 for activation, -1 for inhibition. Defaults to 1.
+            `edge_type` (EdgeType, optional): Type of regulation. Defaults to EdgeType.ACTIVATION.
         """
         super().__init__()
         self.source_node = source_node
         self.target_node = target_node
-        self.edge_type = edge_type  # 1 for activation, -1 for inhibition
+        self.edge_type = edge_type
 
         # Connect to both palette and color scheme changes
         app = QApplication.instance()
@@ -331,7 +359,7 @@ class NetworkEdge(QGraphicsLineItem):
         app = QApplication.instance()
         palette = app.palette()
 
-        if self.edge_type == 1:
+        if self.edge_type == EdgeType.ACTIVATION:
             # For activation edges, use Link color if available, otherwise use Highlight
             edge_color = (
                 palette.color(QPalette.ColorRole.Link)
@@ -380,27 +408,21 @@ class NetworkEdge(QGraphicsLineItem):
         self.setLine(start_x, start_y, end_x, end_y)
 
 
-class EditMode(Enum):
-    """
-    Enumeration of possible editing modes for the network view.
-
-    Values:
-        `NORMAL`: Default mode - allows node movement and selection
-        `ADDING_NODE`: Mode for adding new nodes to the network
-        `ADDING_EDGE`: Mode for creating edges between nodes
-    """
-
-    NORMAL = 0
-    ADDING_NODE = 1
-    ADDING_EDGE = 2
-
-
 class NetworkView(QGraphicsView):
     """
     The main view widget for the gene regulatory network editor.
 
     This class handles the visualization and interaction with the network,
     including node placement, edge creation, and view manipulation (zoom/pan).
+
+    Attributes:
+        `grn` (GRN): The underlying gene regulatory network model
+        `nodes` (dict): Mapping of node names to NetworkNode objects
+        `edges` (list): List of NetworkEdge objects in the network
+        `mode` (EditMode): Current editing mode (NORMAL, ADDING_NODE, ADDING_EDGE)
+        `edge_type` (EdgeType): Type of edge to create (ACTIVATION or INHIBITION)
+        `source_node` (NetworkNode): Source node when creating an edge
+        `temp_line` (QGraphicsLineItem): Temporary line shown while creating an edge
 
     Signals:
         `mode_changed`: Emitted when the editing mode changes
@@ -439,7 +461,7 @@ class NetworkView(QGraphicsView):
         self._mode = EditMode.NORMAL
         self.source_node = None
         self.temp_line = None
-        self.edge_type = 1  # 1 for activation, -1 for inhibition
+        self.edge_type = EdgeType.ACTIVATION
 
         # Node addition state
         self.node_type_to_add = None
@@ -575,9 +597,8 @@ class NetworkView(QGraphicsView):
                 self.temp_line.setLine(
                     source_pos.x(), source_pos.y(), source_pos.x(), source_pos.y()
                 )  # Initial line from node to itself
-                self.temp_line.setPen(
-                    QPen(QColor("blue" if self.edge_type == 1 else "red"), 2)
-                )
+                color = "blue" if self.edge_type == EdgeType.ACTIVATION else "red"
+                self.temp_line.setPen(QPen(QColor(color), 2))
                 self.scene.addItem(self.temp_line)
                 self.status_message.emit("Drag to target node to create edge")
 
@@ -600,7 +621,7 @@ class NetworkView(QGraphicsView):
             # Update GRN
             regulator = {
                 "name": self.source_node.name,
-                "type": self.edge_type,
+                "type": self.edge_type.value,
                 "Kd": 5,
                 "n": 2,
             }
@@ -1318,8 +1339,15 @@ class MainWindow(QMainWindow):
             self.network_view.start_add_node(name, node_type)
 
     def edge_type_changed(self, index):
-        # Update edge type in network view (0 = activation, 1 = inhibition)
-        self.network_view.edge_type = 1 if index == 0 else -1
+        """
+        Update the edge type based on combo box selection.
+
+        Args:
+            `index` (int): Selected index (0 for activation, 1 for inhibition)
+        """
+        self.network_view.edge_type = (
+            EdgeType.ACTIVATION if index == 0 else EdgeType.INHIBITION
+        )
 
     def run_simulation(self):
         grn = self.network_view.grn
@@ -1443,7 +1471,7 @@ class MainWindow(QMainWindow):
                     {
                         "source": edge.source_node.name,
                         "target": edge.target_node.name,
-                        "type": edge.edge_type,
+                        "type": edge.edge_type.value,
                     }
                 )
 
@@ -1503,7 +1531,9 @@ class MainWindow(QMainWindow):
                 for edge_data in network_data["edges"]:
                     source_node = self.network_view.nodes[edge_data["source"]]
                     target_node = self.network_view.nodes[edge_data["target"]]
-                    edge = NetworkEdge(source_node, target_node, edge_data["type"])
+                    edge = NetworkEdge(
+                        source_node, target_node, EdgeType(edge_data["type"])
+                    )
                     self.network_view.scene.addItem(edge)
                     self.network_view.edges.append(edge)
 
