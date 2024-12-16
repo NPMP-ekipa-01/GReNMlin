@@ -140,6 +140,8 @@ class NetworkNode(QGraphicsEllipseItem):
                 for edge in view.edges:
                     if edge.source_node == self or edge.target_node == self:
                         edge.update_position()
+                # Emit the modified signal when node position changes
+                view.grn_modified.emit()
         return super().itemChange(change, value)
 
     def contextMenuEvent(self, event):
@@ -274,6 +276,7 @@ class NetworkView(QGraphicsView):
     # Add signals
     mode_changed = pyqtSignal(EditMode)
     status_message = pyqtSignal(str)
+    grn_modified = pyqtSignal()  # New signal for modification tracking
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -403,6 +406,7 @@ class NetworkView(QGraphicsView):
         self.scene.addItem(node)
         self.nodes[name] = node
 
+        self.grn_modified.emit()
         return node
 
     def node_clicked(self, node):
@@ -441,6 +445,8 @@ class NetworkView(QGraphicsView):
 
             # Reset state
             self.mode = EditMode.NORMAL
+
+            self.grn_modified.emit()
 
     def mouseMoveEvent(self, event):
         if self.source_node and self.temp_line:
@@ -606,6 +612,8 @@ class NetworkView(QGraphicsView):
             # Force scene update
             self.scene.update()
 
+            self.grn_modified.emit()
+
     def delete_node(self, node):
         # Confirm deletion
         reply = QMessageBox.question(
@@ -655,6 +663,8 @@ class NetworkView(QGraphicsView):
             # Force scene update
             self.scene.update()
 
+            self.grn_modified.emit()
+
     def toggle_node_type(self, node):
         """Toggle a node between input and regular type"""
         if node.is_input:
@@ -685,6 +695,8 @@ class NetworkView(QGraphicsView):
         
         # Force scene update
         self.scene.update()
+
+        self.grn_modified.emit()
 
     def center_on_nodes(self):
         """Center the view on all nodes"""
@@ -829,9 +841,10 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        # Track currently opened file
+        # Track file and modification state
         self.current_file = None
-        self.update_title()  # Initial title setup
+        self.modified = False
+        self.update_title()
 
         self.setGeometry(100, 100, 1200, 800)
 
@@ -882,14 +895,23 @@ class MainWindow(QMainWindow):
         self.network_view.mode_changed.connect(self._handle_mode_change)
         self.network_view.status_message.connect(self.statusBar().showMessage)
 
+        # Connect to network changes
+        self.network_view.grn_modified.connect(self.set_modified)  # We'll add this signal
+
+    def set_modified(self, modified=True):
+        """Mark the current network as modified"""
+        self.modified = modified
+        self.update_title()
+
     def update_title(self):
-        """Update window title based on current file"""
+        """Update window title based on current file and modification state"""
         if self.current_file:
-            # Get just the filename without path
             filename = os.path.basename(self.current_file)
-            self.setWindowTitle(f"{filename} - {APP_NAME}")
+            modified_indicator = '*' if self.modified else ''
+            self.setWindowTitle(f"{filename}{modified_indicator} - {APP_NAME}")
         else:
-            self.setWindowTitle(f"{APP_NAME} - {APP_DESCRIPTION}")
+            modified_indicator = '*' if self.modified else ''
+            self.setWindowTitle(f"{APP_NAME}{modified_indicator} - {APP_DESCRIPTION}")
 
     def setup_toolbar(self):
         toolbar = self.addToolBar("Edit")
@@ -1078,19 +1100,15 @@ class MainWindow(QMainWindow):
         self.network_view.set_edge_mode(enabled)
 
     def new_network(self):
-        """Create a new empty network"""
-        reply = QMessageBox.question(self, 'New Network',
-            "Are you sure you want to create a new network? Any unsaved changes will be lost.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-
-        if reply == QMessageBox.StandardButton.Yes:
+        if self.maybe_save():  # Check if we need to save first
             # Clear the current network
             self.network_view.scene.clear()
             self.network_view.nodes.clear()
             self.network_view.edges.clear()
             self.network_view.grn = GRN()
             self.current_file = None
-            self.update_title()  # Reset title to default
+            self.modified = False  # Reset modified flag
+            self.update_title()
 
     def save_network(self, save_as=False):
         """Save the current network to a file"""
@@ -1102,11 +1120,11 @@ class MainWindow(QMainWindow):
                 "GReNMlin Files (*.grn);;All Files (*)"
             )
             if not file_name:
-                return
+                return False  # Return False if save was cancelled
             if not file_name.endswith('.grn'):
                 file_name += '.grn'
             self.current_file = file_name
-            self.update_title()  # Update title with new filename
+            self.update_title()
 
         try:
             # Create network data structure
@@ -1141,83 +1159,94 @@ class MainWindow(QMainWindow):
             with open(self.current_file, 'w') as f:
                 json.dump(network_data, f, indent=2)
 
+            self.modified = False  # Reset modified flag after successful save
+            self.update_title()
             self.statusBar().showMessage(f"Network saved to {self.current_file}", 3000)
-
+            return True
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save network: {str(e)}")
-            print(f"Failed to save network: {str(e)}")
+            return False
 
     def load_network(self):
         """Load a network from a file"""
-        file_name, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open Network",
-            "",
-            "GReNMlin Files (*.grn);;All Files (*)"
+        if self.maybe_save():  # Check if we need to save first
+            file_name, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open Network",
+                "",
+                "GReNMlin Files (*.grn);;All Files (*)"
+            )
+            if not file_name:
+                return
+
+            try:
+                with open(file_name, 'r') as f:
+                    network_data = json.load(f)
+
+                # Clear current network
+                self.network_view.scene.clear()
+                self.network_view.nodes.clear()
+                self.network_view.edges.clear()
+                self.network_view.grn = GRN()
+
+                # Restore GRN state
+                for species in network_data['grn']['species']:
+                    if species['name'] in network_data['grn']['input_species_names']:
+                        self.network_view.grn.add_input_species(species['name'])
+                    else:
+                        self.network_view.grn.add_species(species['name'], species['delta'])
+
+                # Create nodes
+                for node_data in network_data['nodes']:
+                    self.network_view.add_node(
+                        node_data['name'],
+                        node_data['x'],
+                        node_data['y']
+                    )
+
+                # Create edges
+                for edge_data in network_data['edges']:
+                    source_node = self.network_view.nodes[edge_data['source']]
+                    target_node = self.network_view.nodes[edge_data['target']]
+                    edge = NetworkEdge(source_node, target_node, edge_data['type'])
+                    self.network_view.scene.addItem(edge)
+                    self.network_view.edges.append(edge)
+
+                # Restore genes
+                self.network_view.grn.genes = network_data['grn']['genes']
+
+                self.current_file = file_name
+                self.modified = False  # Reset modified flag after successful load
+                self.update_title()
+                self.statusBar().showMessage(f"Network loaded from {file_name}", 3000)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load network: {str(e)}")
+
+    def maybe_save(self):
+        """Check if there are unsaved changes and prompt to save if needed"""
+        if not self.modified:
+            return True
+
+        reply = QMessageBox.question(
+            self, 'Save Changes',
+            "The network has been modified. Do you want to save your changes?",
+            QMessageBox.StandardButton.Save |
+            QMessageBox.StandardButton.Discard |
+            QMessageBox.StandardButton.Cancel
         )
 
-        if not file_name:
-            return
-
-        try:
-            with open(file_name, 'r') as f:
-                network_data = json.load(f)
-
-            # Clear current network
-            self.network_view.scene.clear()
-            self.network_view.nodes.clear()
-            self.network_view.edges.clear()
-            self.network_view.grn = GRN()
-
-            # Restore GRN state
-            for species in network_data['grn']['species']:
-                if species['name'] in network_data['grn']['input_species_names']:
-                    self.network_view.grn.add_input_species(species['name'])
-                else:
-                    self.network_view.grn.add_species(species['name'], species['delta'])
-
-            # Create nodes
-            for node_data in network_data['nodes']:
-                self.network_view.add_node(
-                    node_data['name'],
-                    node_data['x'],
-                    node_data['y']
-                )
-
-            # Create edges
-            for edge_data in network_data['edges']:
-                source_node = self.network_view.nodes[edge_data['source']]
-                target_node = self.network_view.nodes[edge_data['target']]
-                edge = NetworkEdge(source_node, target_node, edge_data['type'])
-                self.network_view.scene.addItem(edge)
-                self.network_view.edges.append(edge)
-
-            # Restore genes
-            self.network_view.grn.genes = network_data['grn']['genes']
-
-            self.current_file = file_name
-            self.update_title()  # Update title with new filename
-            self.statusBar().showMessage(f"Network loaded from {file_name}", 3000)
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load network: {str(e)}")
+        if reply == QMessageBox.StandardButton.Save:
+            return self.save_network()
+        elif reply == QMessageBox.StandardButton.Cancel:
+            return False
+        return True  # Discard was clicked
 
     def closeEvent(self, event):
         """Handle application closing"""
-        if self.network_view.nodes:  # If there's a network loaded
-            reply = QMessageBox.question(self, 'Close Application',
-                "Do you want to save your changes before closing?",
-                QMessageBox.StandardButton.Save |
-                QMessageBox.StandardButton.Discard |
-                QMessageBox.StandardButton.Cancel)
-
-            if reply == QMessageBox.StandardButton.Save:
-                self.save_network()
-                event.accept()
-            elif reply == QMessageBox.StandardButton.Discard:
-                event.accept()
-            else:
-                event.ignore()
+        if self.maybe_save():
+            event.accept()
+        else:
+            event.ignore()
 
     def _handle_mode_change(self, mode):
         """Handle network view mode changes"""
