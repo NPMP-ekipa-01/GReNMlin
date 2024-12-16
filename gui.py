@@ -6,6 +6,7 @@ APP_LONG_DESCRIPTION = (
     "A tool for constructing and simulating models of gene regulatory networks."
 )
 GITHUB_URL = "https://github.com/mmoskon/GReNMlin"
+ICON_FILENAME = "logo.png"
 
 ################################################################################
 
@@ -1046,26 +1047,16 @@ class StartupDialog(QDialog):
         self.setMinimumWidth(400)
 
         # Set application icon
-        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
-            QApplication.instance().setWindowIcon(QIcon(icon_path))
+        app_icon = load_app_icon()
+        if app_icon:
+            self.setWindowIcon(app_icon)
+            QApplication.instance().setWindowIcon(app_icon)
 
         layout = QVBoxLayout()
 
         # Add logo
-        logo_label = QLabel()
-        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path)
-            scaled_pixmap = pixmap.scaled(
-                128,
-                128,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            logo_label.setPixmap(scaled_pixmap)
-            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_label = create_logo_label()
+        if logo_label:
             layout.addWidget(logo_label)
 
         # Add welcome text
@@ -1582,18 +1573,8 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
 
         # Add logo
-        logo_label = QLabel()
-        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path)
-            scaled_pixmap = pixmap.scaled(
-                128,
-                128,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            logo_label.setPixmap(scaled_pixmap)
-            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        logo_label = create_logo_label()
+        if logo_label:
             layout.addWidget(logo_label)
 
         # Add app info
@@ -1617,6 +1598,31 @@ class MainWindow(QMainWindow):
 
         about_dialog.setLayout(layout)
         about_dialog.exec()
+
+
+def load_app_icon():
+    icon_path = os.path.join(os.path.dirname(__file__), ICON_FILENAME)
+    if os.path.exists(icon_path):
+        return QIcon(icon_path)
+    return None
+
+
+def create_logo_label(size=128):
+    icon_path = os.path.join(os.path.dirname(__file__), ICON_FILENAME)
+    if not os.path.exists(icon_path):
+        return None
+
+    logo_label = QLabel()
+    pixmap = QPixmap(icon_path)
+    scaled_pixmap = pixmap.scaled(
+        size,
+        size,
+        Qt.AspectRatioMode.KeepAspectRatio,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    logo_label.setPixmap(scaled_pixmap)
+    logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    return logo_label
 
 
 def main():
