@@ -1,17 +1,29 @@
+# Application Info
+APP_NAME = "GReNMlin"
+APP_VERSION = "0.1.0"
+APP_DESCRIPTION = "Gene Regulatory Network Modeling Interface"
+APP_LONG_DESCRIPTION = "A tool for constructing and simulating models of gene regulatory networks."
+GITHUB_URL = "https://github.com/mmoskon/GReNMlin"
+
+################################################################################
+
 import json
+import os
 import sys
+from enum import Enum
 
 import numpy as np
 from matplotlib.figure import Figure
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QFont, QFontDatabase
+from PyQt6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QIcon, QPainter,
+                         QPalette, QPen, QPixmap)
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog,
                              QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                              QGraphicsEllipseItem, QGraphicsItem,
                              QGraphicsLineItem, QGraphicsScene, QGraphicsView,
                              QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-                             QMessageBox, QPushButton, QRadioButton,
-                             QTabWidget, QVBoxLayout, QWidget, QMenu, QTextEdit)
+                             QMenu, QMessageBox, QPushButton, QRadioButton,
+                             QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 # Needs to be imported after Qt
 from matplotlib.backends.backend_qt5agg import \
@@ -19,7 +31,6 @@ from matplotlib.backends.backend_qt5agg import \
 
 import simulator
 from grn import GRN
-from enum import Enum
 
 
 class NetworkNode(QGraphicsEllipseItem):
@@ -817,8 +828,14 @@ class NetworkStateDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("GReNMlin - Gene Regulatory Network Modeling")
+        self.setWindowTitle(f"{APP_NAME} - {APP_DESCRIPTION}")
         self.setGeometry(100, 100, 1200, 800)
+
+        # Set application icon
+        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+            QApplication.instance().setWindowIcon(QIcon(icon_path))
 
         # Ensure menu bar is visible with KDE global menu
         if hasattr(self, 'menuBar'):
@@ -916,6 +933,11 @@ class MainWindow(QMainWindow):
         view_menu = menubar.addMenu("View")
         reset_view_action = view_menu.addAction("Reset View")
         reset_view_action.triggered.connect(self.reset_view)
+
+        # Help menu
+        help_menu = menubar.addMenu("Help")
+        about_action = help_menu.addAction("About")
+        about_action.triggered.connect(self.show_about_dialog)
 
     def add_node_dialog(self):
         # If we're in edge mode, uncheck the edge button first
@@ -1193,6 +1215,42 @@ class MainWindow(QMainWindow):
         """Reset view transformation and center on nodes"""
         self.network_view.resetTransform()
         self.network_view.center_on_nodes()
+
+    def show_about_dialog(self):
+        about_dialog = QDialog(self)
+        about_dialog.setWindowTitle(f"About {APP_NAME}")
+        layout = QVBoxLayout()
+
+        # Add logo
+        logo_label = QLabel()
+        icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
+        if os.path.exists(icon_path):
+            pixmap = QPixmap(icon_path)
+            scaled_pixmap = pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio, 
+                                        Qt.TransformationMode.SmoothTransformation)
+            logo_label.setPixmap(scaled_pixmap)
+            logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(logo_label)
+
+        # Add app info
+        info_text = QLabel(f"""
+            <h2>{APP_NAME} {APP_VERSION}</h2>
+            <p>{APP_DESCRIPTION}</p>
+            <p>{APP_LONG_DESCRIPTION}</p>
+            <p><a href="{GITHUB_URL}">GitHub Repository</a></p>
+        """)
+        info_text.setOpenExternalLinks(True)
+        info_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_text.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(info_text)
+
+        # Add OK button
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        button_box.accepted.connect(about_dialog.accept)
+        layout.addWidget(button_box)
+
+        about_dialog.setLayout(layout)
+        about_dialog.exec()
 
 def main():
     app = QApplication(sys.argv)
