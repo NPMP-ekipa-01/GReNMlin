@@ -63,7 +63,30 @@ from grn import GRN
 
 
 class NetworkNode(QGraphicsEllipseItem):
+    """
+    Represents a node in the gene regulatory network visualization.
+
+    A node can represent either a regular gene or an input gene. Input genes are
+    displayed with thicker borders and slightly different coloring.
+
+    Attributes:
+        `name` (str): The unique identifier for this node
+        `is_input` (bool): Whether this node represents an input gene
+        `radius` (float): The radius of the circular node representation
+        `label` (NodeLabel): The text label displaying the node's name
+    """
+
     def __init__(self, name, x, y, radius=20, is_input=False):
+        """
+        Initialize a new network node.
+
+        Args:
+            `name` (str): The unique identifier for this node
+            `x` (float): Initial x-coordinate position
+            `y` (float): Initial y-coordinate position
+            `radius` (float, optional): Node radius in pixels. Defaults to 20.
+            `is_input` (bool, optional): Whether this is an input node. Defaults to False.
+        """
         super().__init__(0, 0, radius * 2, radius * 2)
         self.name = name
         self.is_input = is_input  # Store whether this is an input node
@@ -221,7 +244,26 @@ class NetworkNode(QGraphicsEllipseItem):
 
 
 class NodeLabel(QGraphicsItem):
+    """
+    A text label displayed on a NetworkNode showing its name.
+
+    This class handles the rendering of node names and automatically updates
+    its appearance based on the application's color scheme.
+
+    Attributes:
+        `text` (str): The text to display (usually the node's name)
+        `parent_node` (NetworkNode): The node this label belongs to
+        `text_color` (QColor): The current color used for rendering text
+    """
+
     def __init__(self, text, parent_node):
+        """
+        Initialize a new node label.
+
+        Args:
+            `text` (str): The text to display
+            `parent_node` (NetworkNode): The node this label belongs to
+        """
         super().__init__(parent_node)
         self.text = text
         self.parent_node = parent_node
@@ -248,7 +290,28 @@ class NodeLabel(QGraphicsItem):
 
 
 class NetworkEdge(QGraphicsLineItem):
+    """
+    Represents an edge in the gene regulatory network visualization.
+
+    Edges can represent either activation (positive regulation) or inhibition
+    (negative regulation) relationships between nodes. The visual appearance
+    changes based on the edge type.
+
+    Attributes:
+        `source_node` (NetworkNode): The node where the edge starts
+        `target_node` (NetworkNode): The node where the edge ends
+        `edge_type` (int): 1 for activation, -1 for inhibition
+    """
+
     def __init__(self, source_node, target_node, edge_type=1):
+        """
+        Initialize a new network edge.
+
+        Args:
+            `source_node` (NetworkNode): The node where the edge starts
+            `target_node` (NetworkNode): The node where the edge ends
+            `edge_type` (int, optional): 1 for activation, -1 for inhibition. Defaults to 1.
+        """
         super().__init__()
         self.source_node = source_node
         self.target_node = target_node
@@ -317,18 +380,45 @@ class NetworkEdge(QGraphicsLineItem):
 
 
 class EditMode(Enum):
+    """
+    Enumeration of possible editing modes for the network view.
+
+    Values:
+        `NORMAL`: Default mode - allows node movement and selection
+        `ADDING_NODE`: Mode for adding new nodes to the network
+        `ADDING_EDGE`: Mode for creating edges between nodes
+    """
+
     NORMAL = 0
     ADDING_NODE = 1
     ADDING_EDGE = 2
 
 
 class NetworkView(QGraphicsView):
-    # Add signals
-    mode_changed = pyqtSignal(EditMode)
-    status_message = pyqtSignal(str)
-    grn_modified = pyqtSignal()  # New signal for modification tracking
+    """
+    The main view widget for the gene regulatory network editor.
+
+    This class handles the visualization and interaction with the network,
+    including node placement, edge creation, and view manipulation (zoom/pan).
+
+    Signals:
+        `mode_changed`: Emitted when the editing mode changes
+        `status_message`: Emitted when a new status message should be displayed
+        `grn_modified`: Emitted when the network is modified
+    """
+
+    # Add the signals documentation
+    mode_changed = pyqtSignal(EditMode)  # Signal when edit mode changes
+    status_message = pyqtSignal(str)  # Signal for status bar updates
+    grn_modified = pyqtSignal()  # Signal when network is modified
 
     def __init__(self, parent=None):
+        """
+        Initialize the network view.
+
+        Args:
+            `parent` (QWidget, optional): Parent widget. Defaults to None.
+        """
         super().__init__(parent)
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
@@ -366,7 +456,13 @@ class NetworkView(QGraphicsView):
             self.mode_changed.emit(new_mode)
 
     def _handle_mode_change(self):
-        """Handle state changes when mode changes"""
+        """
+        Handle state changes when the editing mode changes.
+
+        Updates cursor appearance, node dragging capabilities, and status messages
+        based on the current editing mode. Also cleans up any temporary items
+        from edge creation.
+        """
         # Clean up any temporary items
         if self.temp_line:
             self.scene.removeItem(self.temp_line)
@@ -485,7 +581,16 @@ class NetworkView(QGraphicsView):
                 self.status_message.emit("Drag to target node to create edge")
 
     def complete_edge(self, target_node):
-        """Complete edge creation and reset state"""
+        """
+        Complete the creation of an edge between nodes.
+
+        Creates both the visual edge and updates the underlying GRN model with
+        the new regulatory relationship. The edge type (activation/inhibition)
+        determines the regulation type in the model.
+
+        Args:
+            `target_node` (NetworkNode): The node where the edge will end
+        """
         if self.source_node and self.source_node != target_node:
             edge = NetworkEdge(self.source_node, target_node, self.edge_type)
             self.scene.addItem(edge)
@@ -733,7 +838,16 @@ class NetworkView(QGraphicsView):
             self.grn_modified.emit()
 
     def toggle_node_type(self, node):
-        """Toggle a node between input and regular type"""
+        """
+        Toggle a node between input and regular type.
+
+        Updates both the visual representation and the underlying GRN model.
+        Input nodes have no degradation rate and are treated as external inputs
+        during simulation.
+
+        Args:
+            `node` (NetworkNode): The node to toggle
+        """
         if node.is_input:
             # Converting from input to regular
             if node.name in self.grn.input_species_names:
@@ -848,6 +962,13 @@ class SimulationPanel(QWidget):
 
 
 class SimulationResultsDialog(QWidget):
+    """
+    Dialog showing simulation results as a line plot.
+
+    Displays the concentration of each species over time using matplotlib.
+    Each species is shown in a different color with a legend identifying them.
+    """
+
     def __init__(self, time_points, results, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Simulation Results")
@@ -874,6 +995,14 @@ class SimulationResultsDialog(QWidget):
 
 
 class NetworkStateDialog(QDialog):
+    """
+    Debug dialog showing the internal state of the GRN model.
+
+    Displays a formatted JSON representation of the current network state,
+    including species information, input species, and gene regulatory relationships.
+    Useful for debugging model generation and simulation issues.
+    """
+
     def __init__(self, network_state, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Network State Debug")
@@ -979,7 +1108,23 @@ class StartupDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    """
+    The main application window for the GReNMlin editor.
+
+    This class manages the overall application UI, including the network view,
+    parameter panels, and all menu/toolbar actions. It also handles file operations
+    and maintains the application state.
+
+    Attributes:
+        `current_file` (str): Path to the currently open network file, or None
+        `modified` (bool): Whether the network has unsaved changes
+        `network_view` (NetworkView): The main network editing widget
+        `parameter_panel` (ParameterPanel): Widget for editing model parameters
+        `simulation_panel` (SimulationPanel): Widget for running simulations
+    """
+
     def __init__(self):
+        """Initialize the main window and set up the user interface."""
         super().__init__()
 
         # Track file and modification state
@@ -1038,7 +1183,13 @@ class MainWindow(QMainWindow):
         )  # We'll add this signal
 
     def set_modified(self, modified=True):
-        """Mark the current network as modified"""
+        """
+        Mark the current network as modified and update the window title.
+
+        Args:
+            `modified` (bool, optional): Whether the network has been modified.
+                Defaults to True.
+        """
         self.modified = modified
         self.update_title()
 
@@ -1252,8 +1403,17 @@ class MainWindow(QMainWindow):
             self.update_title()
 
     def save_network(self, save_as=False):
-        """Save the current network to a file"""
-        if self.current_file is None or save_as:  # No need to check is_new
+        """
+        Save the current network to a file.
+
+        Args:
+            `save_as` (bool, optional): Whether to show the file dialog even if
+                the network has been saved before. Defaults to False.
+
+        Returns:
+            bool: True if the network was saved successfully, False otherwise.
+        """
+        if self.current_file is None or save_as:
             file_name, _ = QFileDialog.getSaveFileName(
                 self, "Save Network", "", "GReNMlin Files (*.grn);;All Files (*)"
             )
@@ -1310,7 +1470,13 @@ class MainWindow(QMainWindow):
             return False
 
     def load_network(self):
-        """Load a network from a file"""
+        """
+        Load a network from a file.
+
+        Prompts the user to save any unsaved changes first, then shows a file
+        dialog to choose the network file to load. Updates the UI to display
+        the loaded network.
+        """
         if self.maybe_save():  # Check if we need to save first
             file_name, _ = QFileDialog.getOpenFileName(
                 self, "Open Network", "", "GReNMlin Files (*.grn);;All Files (*)"
@@ -1362,7 +1528,13 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to load network: {str(e)}")
 
     def maybe_save(self):
-        """Check if there are unsaved changes and prompt to save if needed"""
+        """
+        Check if there are unsaved changes and prompt to save if needed.
+
+        Returns:
+            bool: True if it's safe to proceed (changes saved or discarded),
+                  False if the operation should be cancelled.
+        """
         if not self.modified:
             return True
 
