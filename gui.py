@@ -2,7 +2,9 @@
 APP_NAME = "GReNMlin"
 APP_VERSION = "0.1.0"
 APP_DESCRIPTION = "Gene Regulatory Network Modeling Interface"
-APP_LONG_DESCRIPTION = "A tool for constructing and simulating models of gene regulatory networks."
+APP_LONG_DESCRIPTION = (
+    "A tool for constructing and simulating models of gene regulatory networks."
+)
 GITHUB_URL = "https://github.com/mmoskon/GReNMlin"
 
 ################################################################################
@@ -13,21 +15,48 @@ import sys
 from enum import Enum
 
 import numpy as np
-from matplotlib.figure import Figure
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import (QBrush, QColor, QFont, QFontDatabase, QIcon, QPainter,
-                         QPalette, QPen, QPixmap)
-from PyQt6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog,
-                             QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-                             QGraphicsEllipseItem, QGraphicsItem,
-                             QGraphicsLineItem, QGraphicsScene, QGraphicsView,
-                             QHBoxLayout, QLabel, QLineEdit, QMainWindow,
-                             QMenu, QMessageBox, QPushButton, QRadioButton,
-                             QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PyQt6.QtGui import (
+    QBrush,
+    QColor,
+    QFont,
+    QFontDatabase,
+    QIcon,
+    QPainter,
+    QPalette,
+    QPen,
+    QPixmap,
+)
+from PyQt6.QtWidgets import (
+    QApplication,
+    QButtonGroup,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QFileDialog,
+    QGraphicsEllipseItem,
+    QGraphicsItem,
+    QGraphicsLineItem,
+    QGraphicsScene,
+    QGraphicsView,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 # Needs to be imported after Qt
-from matplotlib.backends.backend_qt5agg import \
-    FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 import simulator
 from grn import GRN
@@ -35,23 +64,23 @@ from grn import GRN
 
 class NetworkNode(QGraphicsEllipseItem):
     def __init__(self, name, x, y, radius=20, is_input=False):
-        super().__init__(0, 0, radius*2, radius*2)
+        super().__init__(0, 0, radius * 2, radius * 2)
         self.name = name
         self.is_input = is_input  # Store whether this is an input node
-        self.setPos(x-radius, y-radius)
+        self.setPos(x - radius, y - radius)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
-        
+
         self.radius = radius
         self.setAcceptHoverEvents(True)
 
         # Add label as child item
         self.label = NodeLabel(name, self)
-        
+
         # Initialize colors
         self.update_colors()
-        
+
         # Connect to both palette and color scheme changes
         app = QApplication.instance()
         app.paletteChanged.connect(self.update_colors)
@@ -60,35 +89,40 @@ class NetworkNode(QGraphicsEllipseItem):
     def update_colors(self):
         app = QApplication.instance()
         palette = app.palette()
-        
+
         # Get base colors from palette
         self.base_color = palette.color(QPalette.ColorRole.Base)
         self.text_color = palette.color(QPalette.ColorRole.Text)
         self.highlight_color = palette.color(QPalette.ColorRole.Highlight)
-        
+
         # Create a slightly contrasting color for nodes
         if app.styleHints().colorScheme() == Qt.ColorScheme.Dark:
             # In dark mode, make nodes slightly lighter
             base_lightness = 200
             if self.is_input:
-                self.node_color = self.base_color.lighter(220)  # Even lighter for input nodes
+                self.node_color = self.base_color.lighter(
+                    base_lightness + 20
+                )  # Even lighter for input nodes
             else:
                 self.node_color = self.base_color.lighter(base_lightness)
         else:
             # In light mode, make nodes slightly darker
+            base_darkness = 110
             if self.is_input:
-                self.node_color = self.base_color.darker(120)  # Slightly darker for input nodes
+                self.node_color = self.base_color.darker(
+                    base_darkness + 10
+                )  # Slightly darker for input nodes
             else:
-                self.node_color = self.base_color.darker(110)
-        
+                self.node_color = self.base_color.darker(base_darkness)
+
         # Update current colors
         self.setBrush(QBrush(self.node_color))
-        
+
         # Set pen with thicker width for input nodes
         pen = QPen(self.text_color)
         pen.setWidth(3 if self.is_input else 1)
         self.setPen(pen)
-        
+
         # Force a redraw
         if self.scene():
             self.scene().update()
@@ -112,8 +146,13 @@ class NetworkNode(QGraphicsEllipseItem):
     def hoverEnterEvent(self, event):
         if isinstance(self.scene().views()[0], NetworkView):
             view = self.scene().views()[0]
-            if view.mode == EditMode.ADDING_EDGE and view.source_node and view.source_node != self:
-                self.setBrush(QBrush(self.highlight_color))  # Use highlight color for valid target
+            if (
+                view.mode == EditMode.ADDING_EDGE
+                and view.source_node
+                and view.source_node != self
+            ):
+                # Use highlight color for valid target
+                self.setBrush(QBrush(self.highlight_color))
             else:
                 app = QApplication.instance()
 
@@ -148,13 +187,15 @@ class NetworkNode(QGraphicsEllipseItem):
         menu = QMenu()
         rename_action = menu.addAction("Rename")
         delete_action = menu.addAction("Delete")
-        
+
         # Add toggle input/regular action
-        toggle_type_action = menu.addAction("Set as Regular" if self.is_input else "Set as Input")
-        
+        toggle_type_action = menu.addAction(
+            "Set as Regular" if self.is_input else "Set as Input"
+        )
+
         # Get the action that was clicked
         action = menu.exec(event.screenPos())
-        
+
         if action == rename_action:
             self.rename_node()
         elif action == delete_action:
@@ -178,12 +219,13 @@ class NetworkNode(QGraphicsEllipseItem):
         if isinstance(view, NetworkView):
             view.toggle_node_type(self)
 
+
 class NodeLabel(QGraphicsItem):
     def __init__(self, text, parent_node):
         super().__init__(parent_node)
         self.text = text
         self.parent_node = parent_node
-        
+
         # Connect to both palette and color scheme changes
         app = QApplication.instance()
         app.paletteChanged.connect(self.update_colors)
@@ -191,7 +233,9 @@ class NodeLabel(QGraphicsItem):
         self.update_colors()
 
     def update_colors(self):
-        self.text_color = QApplication.instance().palette().color(QPalette.ColorRole.Text)
+        self.text_color = (
+            QApplication.instance().palette().color(QPalette.ColorRole.Text)
+        )
         if self.scene():
             self.scene().update()
 
@@ -202,18 +246,19 @@ class NodeLabel(QGraphicsItem):
         painter.setPen(QPen(self.text_color))
         painter.drawText(-10, -10, self.text)
 
+
 class NetworkEdge(QGraphicsLineItem):
     def __init__(self, source_node, target_node, edge_type=1):
         super().__init__()
         self.source_node = source_node
         self.target_node = target_node
         self.edge_type = edge_type  # 1 for activation, -1 for inhibition
-        
+
         # Connect to both palette and color scheme changes
         app = QApplication.instance()
         app.paletteChanged.connect(self.update_colors)
         app.styleHints().colorSchemeChanged.connect(self.update_colors)
-        
+
         self.setZValue(-1)  # Draw edges behind nodes
         self.update_colors()
         self.update_position()
@@ -221,11 +266,14 @@ class NetworkEdge(QGraphicsLineItem):
     def update_colors(self):
         app = QApplication.instance()
         palette = app.palette()
-        
+
         if self.edge_type == 1:
             # For activation edges, use Link color if available, otherwise use Highlight
-            edge_color = palette.color(QPalette.ColorRole.Link) if palette.color(QPalette.ColorRole.Link).isValid() \
+            edge_color = (
+                palette.color(QPalette.ColorRole.Link)
+                if palette.color(QPalette.ColorRole.Link).isValid()
                 else palette.color(QPalette.ColorRole.Highlight)
+            )
         else:
             # For inhibition edges, create a red that contrasts with the current theme
             if app.styleHints().colorScheme() == Qt.ColorScheme.Dark:
@@ -234,7 +282,7 @@ class NetworkEdge(QGraphicsLineItem):
             else:
                 # Dark red for light theme
                 edge_color = QColor(180, 0, 0)
-        
+
         self.setPen(QPen(edge_color, 2))
         if self.scene():
             self.scene().update()
@@ -267,17 +315,19 @@ class NetworkEdge(QGraphicsLineItem):
 
         self.setLine(start_x, start_y, end_x, end_y)
 
+
 class EditMode(Enum):
     NORMAL = 0
     ADDING_NODE = 1
     ADDING_EDGE = 2
+
 
 class NetworkView(QGraphicsView):
     # Add signals
     mode_changed = pyqtSignal(EditMode)
     status_message = pyqtSignal(str)
     grn_modified = pyqtSignal()  # New signal for modification tracking
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.scene = QGraphicsScene(self)
@@ -321,13 +371,15 @@ class NetworkView(QGraphicsView):
         if self.temp_line:
             self.scene.removeItem(self.temp_line)
             self.temp_line = None
-        
+
         self.source_node = None
-        
+
         # Update node dragging flags
         for node in self.nodes.values():
-            node.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, 
-                        self.mode == EditMode.NORMAL)
+            node.setFlag(
+                QGraphicsItem.GraphicsItemFlag.ItemIsMovable,
+                self.mode == EditMode.NORMAL,
+            )
 
         # Update cursor and status message
         if self.mode == EditMode.NORMAL:
@@ -340,7 +392,8 @@ class NetworkView(QGraphicsView):
             self.setCursor(Qt.CursorShape.CrossCursor)
             if self.node_type_to_add and self.node_name_to_add:
                 self.status_message.emit(
-                    f"Click to place {self.node_type_to_add.lower()} node '{self.node_name_to_add}' (Press Esc to cancel)")
+                    f"Click to place {self.node_type_to_add.lower()} node '{self.node_name_to_add}' (Press Esc to cancel)"
+                )
             else:
                 self.status_message.emit("Click to place node (Press Esc to cancel)")
 
@@ -353,13 +406,16 @@ class NetworkView(QGraphicsView):
             super().keyPressEvent(event)
 
     def mousePressEvent(self, event):
-        if self.mode == EditMode.ADDING_NODE and event.button() == Qt.MouseButton.LeftButton:
+        if (
+            self.mode == EditMode.ADDING_NODE
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
             # Get click position in scene coordinates
             scene_pos = self.mapToScene(event.pos())
             x, y = scene_pos.x(), scene_pos.y()
 
             # Add the node at click position
-            if self.node_type_to_add == 'Input':
+            if self.node_type_to_add == "Input":
                 self.grn.add_input_species(self.node_name_to_add)
             else:
                 self.grn.add_species(self.node_name_to_add, 0.1)
@@ -386,7 +442,7 @@ class NetworkView(QGraphicsView):
                 self.scene.removeItem(self.temp_line)
             self.temp_line = None
             self.source_node = None
-        
+
         # Set the node properties
         self.node_name_to_add = node_name
         self.node_type_to_add = node_type
@@ -416,13 +472,15 @@ class NetworkView(QGraphicsView):
                 # Start edge creation
                 self.source_node = node
                 source_pos = node.center()
-                
+
                 # Create temp line starting from the node's center
                 self.temp_line = QGraphicsLineItem()
-                self.temp_line.setLine(source_pos.x(), source_pos.y(), 
-                                     source_pos.x(), source_pos.y())  # Initial line from node to itself
-                self.temp_line.setPen(QPen(
-                    QColor('blue' if self.edge_type == 1 else 'red'), 2))
+                self.temp_line.setLine(
+                    source_pos.x(), source_pos.y(), source_pos.x(), source_pos.y()
+                )  # Initial line from node to itself
+                self.temp_line.setPen(
+                    QPen(QColor("blue" if self.edge_type == 1 else "red"), 2)
+                )
                 self.scene.addItem(self.temp_line)
                 self.status_message.emit("Drag to target node to create edge")
 
@@ -435,12 +493,12 @@ class NetworkView(QGraphicsView):
 
             # Update GRN
             regulator = {
-                'name': self.source_node.name,
-                'type': self.edge_type,
-                'Kd': 5,
-                'n': 2
+                "name": self.source_node.name,
+                "type": self.edge_type,
+                "Kd": 5,
+                "n": 2,
             }
-            product = {'name': target_node.name}
+            product = {"name": target_node.name}
             self.grn.add_gene(10, [regulator], [product])
 
             # Reset state
@@ -494,7 +552,7 @@ class NetworkView(QGraphicsView):
                 if isinstance(item, NetworkNode) and item != self.source_node:
                     target_node = item
                     break
-            
+
             if target_node:
                 self.complete_edge(target_node)
             else:
@@ -505,12 +563,16 @@ class NetworkView(QGraphicsView):
                 self.temp_line = None
                 self.mode = EditMode.ADDING_EDGE  # Stay in edge mode
                 # Return to original message
-                self.status_message.emit("Click and drag from source node to create edge")
-            
+                self.status_message.emit(
+                    "Click and drag from source node to create edge"
+                )
+
             # Reset all node colors
             for node in self.nodes.values():
-                node.setBrush(QBrush(node.node_color))  # Use the node's color update method
-                
+                node.setBrush(
+                    QBrush(node.node_color)
+                )  # Use the node's color update method
+
         super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
@@ -542,23 +604,22 @@ class NetworkView(QGraphicsView):
     def rename_node(self, node):
         # Create rename dialog
         dialog = QDialog(self.parent())
-        dialog.setWindowTitle('Rename Node')
+        dialog.setWindowTitle("Rename Node")
         layout = QVBoxLayout()
-        
+
         # Add name input
         name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel('New name:'))
+        name_layout.addWidget(QLabel("New name:"))
         name_input = QLineEdit()
         name_input.setText(node.name)
         name_layout.addWidget(name_input)
         layout.addLayout(name_layout)
-        
+
         # Add buttons
         button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
-            QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        
+
         # Custom accept handler to validate name
         def handle_accept():
             new_name = name_input.text().strip()
@@ -566,49 +627,51 @@ class NetworkView(QGraphicsView):
                 QMessageBox.warning(dialog, "Warning", "Please enter a node name.")
                 return
             if new_name in self.nodes and new_name != node.name:
-                QMessageBox.warning(dialog, "Warning", "A node with this name already exists.")
+                QMessageBox.warning(
+                    dialog, "Warning", "A node with this name already exists."
+                )
                 return
             dialog.accept()
-            
+
         button_box.accepted.connect(handle_accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
-        
+
         dialog.setLayout(layout)
-        
+
         # Show dialog and process result
         if dialog.exec() == QDialog.DialogCode.Accepted:
             new_name = name_input.text().strip()
             old_name = node.name
-            
+
             # Update node label
             node.name = new_name
             node.label.text = new_name
-            
+
             # Update nodes dictionary
             self.nodes[new_name] = self.nodes.pop(old_name)
-            
+
             # Update GRN
             # First update species name
             for species in self.grn.species:
-                if species['name'] == old_name:
-                    species['name'] = new_name
+                if species["name"] == old_name:
+                    species["name"] = new_name
                     break
-            
+
             # Update input species names if necessary
             if old_name in self.grn.input_species_names:
                 self.grn.input_species_names.remove(old_name)
                 self.grn.input_species_names.append(new_name)
-            
+
             # Update gene regulators and products
             for gene in self.grn.genes:
-                for regulator in gene['regulators']:
-                    if regulator['name'] == old_name:
-                        regulator['name'] = new_name
-                for product in gene['products']:
-                    if product['name'] == old_name:
-                        product['name'] = new_name
-            
+                for regulator in gene["regulators"]:
+                    if regulator["name"] == old_name:
+                        regulator["name"] = new_name
+                for product in gene["products"]:
+                    if product["name"] == old_name:
+                        product["name"] = new_name
+
             # Force scene update
             self.scene.update()
 
@@ -618,11 +681,11 @@ class NetworkView(QGraphicsView):
         # Confirm deletion
         reply = QMessageBox.question(
             self.parent(),
-            'Delete Node',
+            "Delete Node",
             f"Are you sure you want to delete node '{node.name}'?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
             # Remove connected edges first
             edges_to_remove = []
@@ -630,36 +693,40 @@ class NetworkView(QGraphicsView):
                 if edge.source_node == node or edge.target_node == node:
                     edges_to_remove.append(edge)
                     self.scene.removeItem(edge)
-            
+
             # Remove edges from list
             for edge in edges_to_remove:
                 self.edges.remove(edge)
-            
+
             # Remove node from scene and dictionary
             self.scene.removeItem(node)
             del self.nodes[node.name]
-            
+
             # Update GRN
             # Remove species
-            self.grn.species = [s for s in self.grn.species if s['name'] != node.name]
-            
+            self.grn.species = [s for s in self.grn.species if s["name"] != node.name]
+
             # Remove from input species if present
             if node.name in self.grn.input_species_names:
                 self.grn.input_species_names.remove(node.name)
-            
+
             # Remove genes where this node is a product
-            self.grn.genes = [g for g in self.grn.genes 
-                             if not any(p['name'] == node.name for p in g['products'])]
-            
+            self.grn.genes = [
+                g
+                for g in self.grn.genes
+                if not any(p["name"] == node.name for p in g["products"])
+            ]
+
             # Remove this node as a regulator from remaining genes
             for gene in self.grn.genes:
-                gene['regulators'] = [r for r in gene['regulators'] 
-                                    if r['name'] != node.name]
-                
+                gene["regulators"] = [
+                    r for r in gene["regulators"] if r["name"] != node.name
+                ]
+
                 # If a gene has no regulators left, remove it
-                if not gene['regulators']:
+                if not gene["regulators"]:
                     self.grn.genes.remove(gene)
-            
+
             # Force scene update
             self.scene.update()
 
@@ -673,8 +740,8 @@ class NetworkView(QGraphicsView):
                 self.grn.input_species_names.remove(node.name)
                 # Add as regular species with default delta
                 for species in self.grn.species:
-                    if species['name'] == node.name:
-                        species['delta'] = 0.1  # Default degradation rate
+                    if species["name"] == node.name:
+                        species["delta"] = 0.1  # Default degradation rate
                         break
         else:
             # Converting from regular to input
@@ -682,17 +749,17 @@ class NetworkView(QGraphicsView):
                 self.grn.input_species_names.append(node.name)
                 # Remove degradation rate as it's not applicable to input species
                 for species in self.grn.species:
-                    if species['name'] == node.name:
-                        if 'delta' in species:
-                            del species['delta']
+                    if species["name"] == node.name:
+                        if "delta" in species:
+                            del species["delta"]
                         break
-        
+
         # Toggle the is_input flag
         node.is_input = not node.is_input
-        
+
         # Update node appearance
         node.update_colors()
-        
+
         # Force scene update
         self.scene.update()
 
@@ -702,7 +769,7 @@ class NetworkView(QGraphicsView):
         """Center the view on all nodes"""
         if not self.nodes:
             return
-        
+
         # Calculate bounding rect of all nodes
         nodes_rect = None
         for node in self.nodes.values():
@@ -711,13 +778,14 @@ class NetworkView(QGraphicsView):
                 nodes_rect = node_rect
             else:
                 nodes_rect = nodes_rect.united(node_rect)
-        
+
         if nodes_rect:
             # Add some padding
             padding = 50
             nodes_rect.adjust(-padding, -padding, padding, padding)
             # Fit the view to the rectangle
             self.fitInView(nodes_rect, Qt.AspectRatioMode.KeepAspectRatio)
+
 
 class ParameterPanel(QWidget):
     def __init__(self):
@@ -750,6 +818,7 @@ class ParameterPanel(QWidget):
         self.main_layout.addWidget(container)
         return spinbox
 
+
 class SimulationPanel(QWidget):
     def __init__(self):
         super().__init__()
@@ -777,6 +846,7 @@ class SimulationPanel(QWidget):
         layout.addStretch()
         self.setLayout(layout)
 
+
 class SimulationResultsDialog(QWidget):
     def __init__(self, time_points, results, parent=None):
         super().__init__(parent)
@@ -795,12 +865,13 @@ class SimulationResultsDialog(QWidget):
         for species_name, values in results.items():
             ax.plot(time_points, values, label=species_name)
 
-        ax.set_xlabel('Time')
-        ax.set_ylabel('Concentration')
-        ax.set_title('Species Concentrations over Time')
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Concentration")
+        ax.set_title("Species Concentrations over Time")
         ax.legend()
 
         self.setLayout(layout)
+
 
 class NetworkStateDialog(QDialog):
     def __init__(self, network_state, parent=None):
@@ -818,15 +889,15 @@ class NetworkStateDialog(QDialog):
         font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         font.setPointSize(QFont().pointSize())
         text_area.setFont(font)
-        
+
         # Format the network state nicely
         formatted_state = "Species:\n"
-        formatted_state += json.dumps(network_state['species'], indent=2)
+        formatted_state += json.dumps(network_state["species"], indent=2)
         formatted_state += "\n\nInput Species:\n"
-        formatted_state += json.dumps(network_state['input_species'], indent=2)
+        formatted_state += json.dumps(network_state["input_species"], indent=2)
         formatted_state += "\n\nGenes:\n"
-        formatted_state += json.dumps(network_state['genes'], indent=2)
-        
+        formatted_state += json.dumps(network_state["genes"], indent=2)
+
         text_area.setText(formatted_state)
         layout.addWidget(text_area)
 
@@ -836,6 +907,7 @@ class NetworkStateDialog(QDialog):
         layout.addWidget(button_box)
 
         self.setLayout(layout)
+
 
 class StartupDialog(QDialog):
     def __init__(self, parent=None):
@@ -849,55 +921,62 @@ class StartupDialog(QDialog):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
             QApplication.instance().setWindowIcon(QIcon(icon_path))
-        
+
         layout = QVBoxLayout()
-        
+
         # Add logo
         logo_label = QLabel()
         icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
         if os.path.exists(icon_path):
             pixmap = QPixmap(icon_path)
-            scaled_pixmap = pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio, 
-                                        Qt.TransformationMode.SmoothTransformation)
+            scaled_pixmap = pixmap.scaled(
+                128,
+                128,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             logo_label.setPixmap(scaled_pixmap)
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(logo_label)
-        
+
         # Add welcome text
-        welcome_text = QLabel(f"""
+        welcome_text = QLabel(
+            f"""
             <h2>Welcome to {APP_NAME}</h2>
             <p>{APP_LONG_DESCRIPTION}</p>
-        """)
+        """
+        )
         welcome_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         welcome_text.setWordWrap(True)
         welcome_text.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(welcome_text)
-        
+
         # Add buttons
         button_layout = QVBoxLayout()
-        
+
         new_button = QPushButton("Create New Network")
         new_button.clicked.connect(self.accept_new)
         button_layout.addWidget(new_button)
-        
+
         open_button = QPushButton("Open Existing Network")
         open_button.clicked.connect(self.accept_open)
         button_layout.addWidget(open_button)
-        
+
         layout.addLayout(button_layout)
-        
+
         self.setLayout(layout)
-        
+
         # Store the result
         self.result_action = "new"
-    
+
     def accept_new(self):
         self.result_action = "new"
         self.accept()
-    
+
     def accept_open(self):
         self.result_action = "open"
         self.accept()
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -911,7 +990,9 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 1200, 800)
 
         # Ensure menu bar is visible with KDE global menu
-        if os.environ.get('XDG_CURRENT_DESKTOP', '').lower() == 'kde' and hasattr(self, 'menuBar'):
+        if os.environ.get("XDG_CURRENT_DESKTOP", "").upper() == "KDE" and hasattr(
+            self, "menuBar"
+        ):
             self.menuBar().setNativeMenuBar(False)
 
         # Create main widget and layout
@@ -952,7 +1033,9 @@ class MainWindow(QMainWindow):
         self.network_view.status_message.connect(self.statusBar().showMessage)
 
         # Connect to network changes
-        self.network_view.grn_modified.connect(self.set_modified)  # We'll add this signal
+        self.network_view.grn_modified.connect(
+            self.set_modified
+        )  # We'll add this signal
 
     def set_modified(self, modified=True):
         """Mark the current network as modified"""
@@ -999,7 +1082,9 @@ class MainWindow(QMainWindow):
         new_action.setShortcut("Ctrl+N")
         new_action.triggered.connect(self.new_network)
 
-        open_action = file_menu.addAction("Open Network...")  # Add ellipsis for dialog actions
+        open_action = file_menu.addAction(
+            "Open Network..."
+        )  # Add ellipsis for dialog actions
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self.load_network)
 
@@ -1030,43 +1115,42 @@ class MainWindow(QMainWindow):
         # If we're in edge mode, uncheck the edge button first
         if self.network_view.mode == EditMode.ADDING_EDGE:
             self.add_edge_action.setChecked(False)
-            
+
         # Create a custom dialog with both name input and node type selection
         dialog = QDialog(self)
-        dialog.setWindowTitle('Add Node')
+        dialog.setWindowTitle("Add Node")
         layout = QVBoxLayout()
 
         # Add name input
         name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel('Node name:'))
+        name_layout.addWidget(QLabel("Node name:"))
         name_input = QLineEdit()
         name_layout.addWidget(name_input)
         layout.addLayout(name_layout)
 
         # Add type selection with radio buttons
         type_layout = QHBoxLayout()
-        type_layout.addWidget(QLabel('Node type:'))
-        
+        type_layout.addWidget(QLabel("Node type:"))
+
         # Create radio buttons
-        regular_radio = QRadioButton('Regular')
-        input_radio = QRadioButton('Input')
+        regular_radio = QRadioButton("Regular")
+        input_radio = QRadioButton("Input")
         regular_radio.setChecked(True)  # Set Regular as default
-        
+
         # Add radio buttons to a button group
         button_group = QButtonGroup()
         button_group.addButton(regular_radio)
         button_group.addButton(input_radio)
-        
+
         type_layout.addWidget(regular_radio)
         type_layout.addWidget(input_radio)
         layout.addLayout(type_layout)
 
         # Add buttons
         button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | 
-            QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        
+
         # Custom accept handler to validate name
         def handle_accept():
             name = name_input.text().strip()
@@ -1074,10 +1158,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(dialog, "Warning", "Please enter a node name.")
                 return
             if name in self.network_view.nodes:
-                QMessageBox.warning(dialog, "Warning", "A node with this name already exists.")
+                QMessageBox.warning(
+                    dialog, "Warning", "A node with this name already exists."
+                )
                 return
             dialog.accept()
-            
+
         button_box.accepted.connect(handle_accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
@@ -1087,7 +1173,7 @@ class MainWindow(QMainWindow):
         # Show dialog and process result
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name = name_input.text().strip()
-            node_type = 'Input' if input_radio.isChecked() else 'Regular'
+            node_type = "Input" if input_radio.isChecked() else "Regular"
             self.network_view.start_add_node(name, node_type)
 
     def edge_type_changed(self, index):
@@ -1100,14 +1186,16 @@ class MainWindow(QMainWindow):
 
         # Make sure we have some nodes
         if not grn.species:
-            QMessageBox.warning(self, "Warning", "Please add some nodes to the network first.")
+            QMessageBox.warning(
+                self, "Warning", "Please add some nodes to the network first."
+            )
             return
 
         # Show debug dialog with network state
         network_state = {
-            'species': grn.species,
-            'input_species': grn.input_species_names,
-            'genes': grn.genes
+            "species": grn.species,
+            "input_species": grn.input_species_names,
+            "genes": grn.genes,
         }
         debug_dialog = NetworkStateDialog(network_state, self)
         debug_dialog.exec()
@@ -1119,8 +1207,8 @@ class MainWindow(QMainWindow):
         initial_state = []
         species_names = []
         for species in grn.species:
-            species_names.append(species['name'])
-            if species['name'] in grn.input_species_names:
+            species_names.append(species["name"])
+            if species["name"] in grn.input_species_names:
                 initial_state.append(10.0)  # Default input value
             else:
                 initial_state.append(0.0)
@@ -1131,10 +1219,7 @@ class MainWindow(QMainWindow):
             grn.generate_model()
             # Then simulate
             time_points, results = simulator.simulate_single(
-                grn,
-                initial_state,
-                t_end=sim_time,
-                plot_on=False
+                grn, initial_state, t_end=sim_time, plot_on=False
             )
 
             # Convert results to dictionary for plotting
@@ -1149,6 +1234,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Simulation error: {str(e)}")
             # Print more detailed error information
             import traceback
+
             traceback.print_exc()
 
     def toggle_edge_mode(self, enabled):
@@ -1169,49 +1255,50 @@ class MainWindow(QMainWindow):
         """Save the current network to a file"""
         if self.current_file is None or save_as:  # No need to check is_new
             file_name, _ = QFileDialog.getSaveFileName(
-                self,
-                "Save Network",
-                "",
-                "GReNMlin Files (*.grn);;All Files (*)"
+                self, "Save Network", "", "GReNMlin Files (*.grn);;All Files (*)"
             )
             if not file_name:
                 return False
-            if not file_name.endswith('.grn'):
-                file_name += '.grn'
+            if not file_name.endswith(".grn"):
+                file_name += ".grn"
             self.current_file = file_name
             self.update_title()
 
         try:
             # Create network data structure
             network_data = {
-                'nodes': [],
-                'edges': [],
-                'grn': {
-                    'species': self.network_view.grn.species,
-                    'input_species_names': self.network_view.grn.input_species_names,
-                    'genes': self.network_view.grn.genes
-                }
+                "nodes": [],
+                "edges": [],
+                "grn": {
+                    "species": self.network_view.grn.species,
+                    "input_species_names": self.network_view.grn.input_species_names,
+                    "genes": self.network_view.grn.genes,
+                },
             }
 
             # Save node positions
             for name, node in self.network_view.nodes.items():
-                network_data['nodes'].append({
-                    'name': name,
-                    'x': node.pos().x(),
-                    'y': node.pos().y(),
-                    'is_input': name in self.network_view.grn.input_species_names
-                })
+                network_data["nodes"].append(
+                    {
+                        "name": name,
+                        "x": node.pos().x(),
+                        "y": node.pos().y(),
+                        "is_input": name in self.network_view.grn.input_species_names,
+                    }
+                )
 
             # Save edges
             for edge in self.network_view.edges:
-                network_data['edges'].append({
-                    'source': edge.source_node.name,
-                    'target': edge.target_node.name,
-                    'type': edge.edge_type
-                })
+                network_data["edges"].append(
+                    {
+                        "source": edge.source_node.name,
+                        "target": edge.target_node.name,
+                        "type": edge.edge_type,
+                    }
+                )
 
             # Save to file
-            with open(self.current_file, 'w') as f:
+            with open(self.current_file, "w") as f:
                 json.dump(network_data, f, indent=2)
 
             self.modified = False
@@ -1226,16 +1313,13 @@ class MainWindow(QMainWindow):
         """Load a network from a file"""
         if self.maybe_save():  # Check if we need to save first
             file_name, _ = QFileDialog.getOpenFileName(
-                self,
-                "Open Network",
-                "",
-                "GReNMlin Files (*.grn);;All Files (*)"
+                self, "Open Network", "", "GReNMlin Files (*.grn);;All Files (*)"
             )
             if not file_name:
                 return
 
             try:
-                with open(file_name, 'r') as f:
+                with open(file_name, "r") as f:
                     network_data = json.load(f)
 
                 # Clear current network
@@ -1245,30 +1329,30 @@ class MainWindow(QMainWindow):
                 self.network_view.grn = GRN()
 
                 # Restore GRN state
-                for species in network_data['grn']['species']:
-                    if species['name'] in network_data['grn']['input_species_names']:
-                        self.network_view.grn.add_input_species(species['name'])
+                for species in network_data["grn"]["species"]:
+                    if species["name"] in network_data["grn"]["input_species_names"]:
+                        self.network_view.grn.add_input_species(species["name"])
                     else:
-                        self.network_view.grn.add_species(species['name'], species['delta'])
+                        self.network_view.grn.add_species(
+                            species["name"], species["delta"]
+                        )
 
                 # Create nodes
-                for node_data in network_data['nodes']:
+                for node_data in network_data["nodes"]:
                     self.network_view.add_node(
-                        node_data['name'],
-                        node_data['x'],
-                        node_data['y']
+                        node_data["name"], node_data["x"], node_data["y"]
                     )
 
                 # Create edges
-                for edge_data in network_data['edges']:
-                    source_node = self.network_view.nodes[edge_data['source']]
-                    target_node = self.network_view.nodes[edge_data['target']]
-                    edge = NetworkEdge(source_node, target_node, edge_data['type'])
+                for edge_data in network_data["edges"]:
+                    source_node = self.network_view.nodes[edge_data["source"]]
+                    target_node = self.network_view.nodes[edge_data["target"]]
+                    edge = NetworkEdge(source_node, target_node, edge_data["type"])
                     self.network_view.scene.addItem(edge)
                     self.network_view.edges.append(edge)
 
                 # Restore genes
-                self.network_view.grn.genes = network_data['grn']['genes']
+                self.network_view.grn.genes = network_data["grn"]["genes"]
 
                 self.current_file = file_name
                 self.modified = False
@@ -1289,11 +1373,12 @@ class MainWindow(QMainWindow):
             message = "The network has been modified. Do you want to save your changes?"
 
         reply = QMessageBox.question(
-            self, 'Save Changes',
+            self,
+            "Save Changes",
             message,
-            QMessageBox.StandardButton.Save |
-            QMessageBox.StandardButton.Discard |
-            QMessageBox.StandardButton.Cancel
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
         )
 
         if reply == QMessageBox.StandardButton.Save:
@@ -1329,19 +1414,25 @@ class MainWindow(QMainWindow):
         icon_path = os.path.join(os.path.dirname(__file__), "logo.png")
         if os.path.exists(icon_path):
             pixmap = QPixmap(icon_path)
-            scaled_pixmap = pixmap.scaled(128, 128, Qt.AspectRatioMode.KeepAspectRatio, 
-                                        Qt.TransformationMode.SmoothTransformation)
+            scaled_pixmap = pixmap.scaled(
+                128,
+                128,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             logo_label.setPixmap(scaled_pixmap)
             logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             layout.addWidget(logo_label)
 
         # Add app info
-        info_text = QLabel(f"""
+        info_text = QLabel(
+            f"""
             <h2>{APP_NAME} {APP_VERSION}</h2>
             <p>{APP_DESCRIPTION}</p>
             <p>{APP_LONG_DESCRIPTION}</p>
             <p><a href="{GITHUB_URL}">GitHub Repository</a></p>
-        """)
+        """
+        )
         info_text.setOpenExternalLinks(True)
         info_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_text.setTextFormat(Qt.TextFormat.RichText)
@@ -1355,9 +1446,10 @@ class MainWindow(QMainWindow):
         about_dialog.setLayout(layout)
         about_dialog.exec()
 
+
 def main():
     app = QApplication(sys.argv)
-    
+
     # Show startup dialog
     startup = StartupDialog()
     if startup.exec() == QDialog.DialogCode.Accepted:
@@ -1367,6 +1459,7 @@ def main():
             window.load_network()
         window.show()
         sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()
