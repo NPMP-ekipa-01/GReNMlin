@@ -675,6 +675,27 @@ class NetworkView(QGraphicsView):
         # Force scene update
         self.scene.update()
 
+    def center_on_nodes(self):
+        """Center the view on all nodes"""
+        if not self.nodes:
+            return
+        
+        # Calculate bounding rect of all nodes
+        nodes_rect = None
+        for node in self.nodes.values():
+            node_rect = node.sceneBoundingRect()
+            if nodes_rect is None:
+                nodes_rect = node_rect
+            else:
+                nodes_rect = nodes_rect.united(node_rect)
+        
+        if nodes_rect:
+            # Add some padding
+            padding = 50
+            nodes_rect.adjust(-padding, -padding, padding, padding)
+            # Fit the view to the rectangle
+            self.fitInView(nodes_rect, Qt.AspectRatioMode.KeepAspectRatio)
+
 class ParameterPanel(QWidget):
     def __init__(self):
         super().__init__()
@@ -894,7 +915,7 @@ class MainWindow(QMainWindow):
         # View menu
         view_menu = menubar.addMenu("View")
         reset_view_action = view_menu.addAction("Reset View")
-        reset_view_action.triggered.connect(self.network_view.resetTransform)
+        reset_view_action.triggered.connect(self.reset_view)
 
     def add_node_dialog(self):
         # If we're in edge mode, uncheck the edge button first
@@ -1167,6 +1188,11 @@ class MainWindow(QMainWindow):
         """Handle network view mode changes"""
         # Update toolbar actions
         self.add_edge_action.setChecked(mode == EditMode.ADDING_EDGE)
+
+    def reset_view(self):
+        """Reset view transformation and center on nodes"""
+        self.network_view.resetTransform()
+        self.network_view.center_on_nodes()
 
 def main():
     app = QApplication(sys.argv)
