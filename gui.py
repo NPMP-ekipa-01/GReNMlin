@@ -40,18 +40,30 @@ class NetworkNode(QGraphicsEllipseItem):
         # Initialize colors
         self.update_colors()
         
-        # Connect to application's palette change signal
+        # Connect to both palette and color scheme changes
         app = QApplication.instance()
         app.paletteChanged.connect(self.update_colors)
+        app.styleHints().colorSchemeChanged.connect(self.update_colors)
 
     def update_colors(self):
         app = QApplication.instance()
-        self.base_color = app.palette().color(QPalette.ColorRole.Base)
-        self.text_color = app.palette().color(QPalette.ColorRole.Text)
-        self.highlight_color = app.palette().color(QPalette.ColorRole.Highlight)
+        palette = app.palette()
+        
+        # Get base colors from palette
+        self.base_color = palette.color(QPalette.ColorRole.Base)
+        self.text_color = palette.color(QPalette.ColorRole.Text)
+        self.highlight_color = palette.color(QPalette.ColorRole.Highlight)
+        
+        # Create a slightly contrasting color for nodes
+        if app.styleHints().colorScheme() == Qt.ColorScheme.Dark:
+            # In dark mode, make nodes slightly lighter
+            self.node_color = self.base_color.lighter(200)
+        else:
+            # In light mode, make nodes slightly darker
+            self.node_color = self.base_color.darker(110)
         
         # Update current colors
-        self.setBrush(QBrush(self.base_color))
+        self.setBrush(QBrush(self.node_color))
         self.setPen(QPen(self.text_color))
         
         # Force a redraw
@@ -60,7 +72,8 @@ class NetworkNode(QGraphicsEllipseItem):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.setBrush(QBrush(self.highlight_color.lighter()))
+            # Use highlight color for selection
+            self.setBrush(QBrush(self.highlight_color))
             if isinstance(self.scene().views()[0], NetworkView):
                 view = self.scene().views()[0]
                 if view.mode == EditMode.ADDING_EDGE:
@@ -69,20 +82,28 @@ class NetworkNode(QGraphicsEllipseItem):
                     super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
-        self.setBrush(QBrush(self.base_color))
+        self.setBrush(QBrush(self.node_color))  # Reset to node color
         if self.scene().views()[0].mode != EditMode.ADDING_EDGE:
             super().mouseReleaseEvent(event)
 
     def hoverEnterEvent(self, event):
-        self.setBrush(QBrush(self.base_color.lighter()))  # Highlight on hover
         if isinstance(self.scene().views()[0], NetworkView):
             view = self.scene().views()[0]
             if view.mode == EditMode.ADDING_EDGE and view.source_node and view.source_node != self:
-                self.setBrush(QBrush(self.highlight_color))  # Highlight for valid target
+                self.setBrush(QBrush(self.highlight_color))  # Use highlight color for valid target
+            else:
+                app = QApplication.instance()
+
+                # Make the node slightly lighter/darker on hover
+                if app.styleHints().colorScheme() == Qt.ColorScheme.Dark:
+                    hover_color = self.node_color.lighter(120)
+                else:
+                    hover_color = self.node_color.darker(105)
+                self.setBrush(QBrush(hover_color))
         super().hoverEnterEvent(event)
 
     def hoverLeaveEvent(self, event):
-        self.setBrush(QBrush(self.base_color))  # Reset color
+        self.setBrush(QBrush(self.node_color))  # Reset to node color
         super().hoverLeaveEvent(event)
 
     def center(self):
@@ -128,9 +149,10 @@ class NodeLabel(QGraphicsItem):
         self.text = text
         self.parent_node = parent_node
         
-        # Connect to palette changes
+        # Connect to both palette and color scheme changes
         app = QApplication.instance()
         app.paletteChanged.connect(self.update_colors)
+        app.styleHints().colorSchemeChanged.connect(self.update_colors)
         self.update_colors()
 
     def update_colors(self):
@@ -152,9 +174,10 @@ class NetworkEdge(QGraphicsLineItem):
         self.target_node = target_node
         self.edge_type = edge_type  # 1 for activation, -1 for inhibition
         
-        # Connect to palette changes
+        # Connect to both palette and color scheme changes
         app = QApplication.instance()
         app.paletteChanged.connect(self.update_colors)
+        app.styleHints().colorSchemeChanged.connect(self.update_colors)
         
         self.setZValue(-1)  # Draw edges behind nodes
         self.update_colors()
@@ -165,13 +188,17 @@ class NetworkEdge(QGraphicsLineItem):
         palette = app.palette()
         
         if self.edge_type == 1:
+            # For activation edges, use Link color if available, otherwise use Highlight
             edge_color = palette.color(QPalette.ColorRole.Link) if palette.color(QPalette.ColorRole.Link).isValid() \
                 else palette.color(QPalette.ColorRole.Highlight)
         else:
-            if palette.color(QPalette.ColorRole.Base).lightness() > 128:
-                edge_color = QColor(200, 0, 0)  # Darker red for light theme
+            # For inhibition edges, create a red that contrasts with the current theme
+            if app.styleHints().colorScheme() == Qt.ColorScheme.Dark:
+                # Light red for dark theme
+                edge_color = QColor(255, 100, 100)
             else:
-                edge_color = QColor(255, 80, 80)  # Lighter red for dark theme
+                # Dark red for light theme
+                edge_color = QColor(180, 0, 0)
         
         self.setPen(QPen(edge_color, 2))
         if self.scene():
@@ -405,13 +432,13 @@ class NetworkView(QGraphicsView):
             # Reset all node colors first
             for node in self.nodes.values():
                 if node != self.source_node:
-                    node.update_colors()
+                    node.setBrush(QBrush(node.node_color))
 
-            # Then highlight the node under cursor if it's a valid target
+            # Highlight valid target nodes
             items = self.items(event.pos())
             for item in items:
                 if isinstance(item, NetworkNode) and item != self.source_node:
-                    item.setBrush(QBrush(QColor(200, 255, 200)))  # Green highlight
+                    item.setBrush(QBrush(item.highlight_color))
                     break
 
         super().mouseMoveEvent(event)
@@ -440,7 +467,7 @@ class NetworkView(QGraphicsView):
             
             # Reset all node colors
             for node in self.nodes.values():
-                node.update_colors()  # Use the node's color update method
+                node.setBrush(QBrush(node.node_color))  # Use the node's color update method
                 
         super().mouseReleaseEvent(event)
 
