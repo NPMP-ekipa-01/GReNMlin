@@ -665,7 +665,19 @@ class MainWindow(QMainWindow):
             QDialogButtonBox.StandardButton.Ok | 
             QDialogButtonBox.StandardButton.Cancel
         )
-        button_box.accepted.connect(dialog.accept)
+        
+        # Custom accept handler to validate name
+        def handle_accept():
+            name = name_input.text().strip()
+            if not name:
+                QMessageBox.warning(dialog, "Warning", "Please enter a node name.")
+                return
+            if name in self.network_view.nodes:
+                QMessageBox.warning(dialog, "Warning", "A node with this name already exists.")
+                return
+            dialog.accept()
+            
+        button_box.accepted.connect(handle_accept)
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
 
@@ -673,10 +685,9 @@ class MainWindow(QMainWindow):
 
         # Show dialog and process result
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            name = name_input.text()
-            if name:  # Only proceed if a name was entered
-                node_type = 'Input' if input_radio.isChecked() else 'Regular'
-                self.network_view.start_add_node(name, node_type)
+            name = name_input.text().strip()
+            node_type = 'Input' if input_radio.isChecked() else 'Regular'
+            self.network_view.start_add_node(name, node_type)
 
     def edge_type_changed(self, index):
         # Update edge type in network view (0 = activation, 1 = inhibition)
