@@ -963,11 +963,10 @@ class MainWindow(QMainWindow):
         """Update window title based on current file and modification state"""
         if self.current_file:
             filename = os.path.basename(self.current_file)
-            modified_indicator = '*' if self.modified else ''
-            self.setWindowTitle(f"{filename}{modified_indicator} - {APP_NAME}")
         else:
-            modified_indicator = '*' if self.modified else ''
-            self.setWindowTitle(f"{APP_NAME}{modified_indicator} - {APP_DESCRIPTION}")
+            filename = "New network"  # Default name for new networks
+
+        self.setWindowTitle(f"{filename}{'*' if self.modified else ''} - {APP_NAME}")
 
     def setup_toolbar(self):
         toolbar = self.addToolBar("Edit")
@@ -997,18 +996,18 @@ class MainWindow(QMainWindow):
 
         # Connect file menu actions
         new_action = file_menu.addAction("New Network")
-        new_action.setShortcut("Ctrl+N")  # Add keyboard shortcut
+        new_action.setShortcut("Ctrl+N")
         new_action.triggered.connect(self.new_network)
 
-        open_action = file_menu.addAction("Open Network")
+        open_action = file_menu.addAction("Open Network...")  # Add ellipsis for dialog actions
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self.load_network)
 
-        save_action = file_menu.addAction("Save Network")
+        save_action = file_menu.addAction("Save")  # Simplified name
         save_action.setShortcut("Ctrl+S")
         save_action.triggered.connect(self.save_network)
 
-        save_as_action = file_menu.addAction("Save Network As ...")
+        save_as_action = file_menu.addAction("Save As...")
         save_as_action.setShortcut("Ctrl+Shift+S")
         save_as_action.triggered.connect(lambda: self.save_network(save_as=True))
 
@@ -1163,12 +1162,12 @@ class MainWindow(QMainWindow):
             self.network_view.edges.clear()
             self.network_view.grn = GRN()
             self.current_file = None
-            self.modified = False  # Reset modified flag
+            self.modified = False
             self.update_title()
 
     def save_network(self, save_as=False):
         """Save the current network to a file"""
-        if self.current_file is None or save_as:
+        if self.current_file is None or save_as:  # No need to check is_new
             file_name, _ = QFileDialog.getSaveFileName(
                 self,
                 "Save Network",
@@ -1176,7 +1175,7 @@ class MainWindow(QMainWindow):
                 "GReNMlin Files (*.grn);;All Files (*)"
             )
             if not file_name:
-                return False  # Return False if save was cancelled
+                return False
             if not file_name.endswith('.grn'):
                 file_name += '.grn'
             self.current_file = file_name
@@ -1215,7 +1214,7 @@ class MainWindow(QMainWindow):
             with open(self.current_file, 'w') as f:
                 json.dump(network_data, f, indent=2)
 
-            self.modified = False  # Reset modified flag after successful save
+            self.modified = False
             self.update_title()
             self.statusBar().showMessage(f"Network saved to {self.current_file}", 3000)
             return True
@@ -1272,7 +1271,7 @@ class MainWindow(QMainWindow):
                 self.network_view.grn.genes = network_data['grn']['genes']
 
                 self.current_file = file_name
-                self.modified = False  # Reset modified flag after successful load
+                self.modified = False
                 self.update_title()
                 self.statusBar().showMessage(f"Network loaded from {file_name}", 3000)
             except Exception as e:
@@ -1283,9 +1282,15 @@ class MainWindow(QMainWindow):
         if not self.modified:
             return True
 
+        # Customize message based on whether it's a new network
+        if self.current_file is None:
+            message = "Do you want to save the new network?"
+        else:
+            message = "The network has been modified. Do you want to save your changes?"
+
         reply = QMessageBox.question(
             self, 'Save Changes',
-            "The network has been modified. Do you want to save your changes?",
+            message,
             QMessageBox.StandardButton.Save |
             QMessageBox.StandardButton.Discard |
             QMessageBox.StandardButton.Cancel
