@@ -348,7 +348,12 @@ class NetworkView(QGraphicsView):
             if self.source_node is None:
                 # Start edge creation
                 self.source_node = node
+                source_pos = node.center()
+                
+                # Create temp line starting from the node's center
                 self.temp_line = QGraphicsLineItem()
+                self.temp_line.setLine(source_pos.x(), source_pos.y(), 
+                                     source_pos.x(), source_pos.y())  # Initial line from node to itself
                 self.temp_line.setPen(QPen(
                     QColor('blue' if self.edge_type == 1 else 'red'), 2))
                 self.scene.addItem(self.temp_line)
