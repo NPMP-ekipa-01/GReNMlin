@@ -4,14 +4,14 @@ import sys
 import numpy as np
 from matplotlib.figure import Figure
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QFont
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog,
                              QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                              QGraphicsEllipseItem, QGraphicsItem,
                              QGraphicsLineItem, QGraphicsScene, QGraphicsView,
                              QHBoxLayout, QLabel, QLineEdit, QMainWindow,
                              QMessageBox, QPushButton, QRadioButton,
-                             QTabWidget, QVBoxLayout, QWidget, QMenu)
+                             QTabWidget, QVBoxLayout, QWidget, QMenu, QTextEdit)
 
 # Needs to be imported after Qt
 from matplotlib.backends.backend_qt5agg import \
@@ -670,6 +670,37 @@ class SimulationResultsDialog(QWidget):
 
         self.setLayout(layout)
 
+class NetworkStateDialog(QDialog):
+    def __init__(self, network_state, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Network State Debug")
+        self.setGeometry(100, 100, 600, 400)
+
+        layout = QVBoxLayout()
+
+        # Create text area
+        text_area = QTextEdit()
+        text_area.setReadOnly(True)
+        text_area.setFont(QFont("Courier"))  # Use monospace font
+        
+        # Format the network state nicely
+        formatted_state = "Species:\n"
+        formatted_state += json.dumps(network_state['species'], indent=2)
+        formatted_state += "\n\nInput Species:\n"
+        formatted_state += json.dumps(network_state['input_species'], indent=2)
+        formatted_state += "\n\nGenes:\n"
+        formatted_state += json.dumps(network_state['genes'], indent=2)
+        
+        text_area.setText(formatted_state)
+        layout.addWidget(text_area)
+
+        # Add OK button
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        button_box.accepted.connect(self.accept)
+        layout.addWidget(button_box)
+
+        self.setLayout(layout)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -847,15 +878,20 @@ class MainWindow(QMainWindow):
 
         # Make sure we have some nodes
         if not grn.species:
-            print("Please add some nodes to the network first.")
+            QMessageBox.warning(self, "Warning", "Please add some nodes to the network first.")
             return
 
-        # Debug print
-        print("\nNetwork state before simulation:")
-        print("Species:", grn.species)
-        print("Input species:", grn.input_species_names)
-        print("Genes:", grn.genes)
-        print()
+        # Show debug dialog with network state
+        network_state = {
+            'species': grn.species,
+            'input_species': grn.input_species_names,
+            'genes': grn.genes
+        }
+        debug_dialog = NetworkStateDialog(network_state, self)
+        debug_dialog.exec()
+
+        # TODO: Fix implementation of simulation
+        return
 
         # Get initial conditions and species names
         initial_state = []
@@ -888,7 +924,7 @@ class MainWindow(QMainWindow):
             dialog = SimulationResultsDialog(time_points, results_dict, self)
             dialog.show()
         except Exception as e:
-            print(f"Simulation error: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Simulation error: {str(e)}")
             # Print more detailed error information
             import traceback
             traceback.print_exc()
