@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog,
                              QGraphicsLineItem, QGraphicsScene, QGraphicsView,
                              QHBoxLayout, QLabel, QLineEdit, QMainWindow,
                              QMessageBox, QPushButton, QRadioButton,
-                             QTabWidget, QVBoxLayout, QWidget)
+                             QTabWidget, QVBoxLayout, QWidget, QMenu)
 
 # Needs to be imported after Qt
 from matplotlib.backends.backend_qt5agg import \
@@ -97,6 +97,30 @@ class NetworkNode(QGraphicsEllipseItem):
                     if edge.source_node == self or edge.target_node == self:
                         edge.update_position()
         return super().itemChange(change, value)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu()
+        rename_action = menu.addAction("Rename")
+        delete_action = menu.addAction("Delete")
+        
+        # Get the action that was clicked
+        action = menu.exec(event.screenPos())
+        
+        if action == rename_action:
+            self.rename_node()
+        elif action == delete_action:
+            self.delete_node()
+
+    def rename_node(self):
+        # Get reference to main window through scene's view
+        view = self.scene().views()[0]
+        if isinstance(view, NetworkView):
+            view.rename_node(self)
+
+    def delete_node(self):
+        view = self.scene().views()[0]
+        if isinstance(view, NetworkView):
+            view.delete_node(self)
 
 class NodeLabel(QGraphicsItem):
     def __init__(self, text, parent_node):
@@ -440,6 +464,128 @@ class NetworkView(QGraphicsView):
     def set_edge_mode(self, enabled):
         """Toggle edge creation mode"""
         self.mode = EditMode.ADDING_EDGE if enabled else EditMode.NORMAL
+
+    def rename_node(self, node):
+        # Create rename dialog
+        dialog = QDialog(self.parent())
+        dialog.setWindowTitle('Rename Node')
+        layout = QVBoxLayout()
+        
+        # Add name input
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel('New name:'))
+        name_input = QLineEdit()
+        name_input.setText(node.name)
+        name_layout.addWidget(name_input)
+        layout.addLayout(name_layout)
+        
+        # Add buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        
+        # Custom accept handler to validate name
+        def handle_accept():
+            new_name = name_input.text().strip()
+            if not new_name:
+                QMessageBox.warning(dialog, "Warning", "Please enter a node name.")
+                return
+            if new_name in self.nodes and new_name != node.name:
+                QMessageBox.warning(dialog, "Warning", "A node with this name already exists.")
+                return
+            dialog.accept()
+            
+        button_box.accepted.connect(handle_accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        dialog.setLayout(layout)
+        
+        # Show dialog and process result
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            new_name = name_input.text().strip()
+            old_name = node.name
+            
+            # Update node label
+            node.name = new_name
+            node.label.text = new_name
+            
+            # Update nodes dictionary
+            self.nodes[new_name] = self.nodes.pop(old_name)
+            
+            # Update GRN
+            # First update species name
+            for species in self.grn.species:
+                if species['name'] == old_name:
+                    species['name'] = new_name
+                    break
+            
+            # Update input species names if necessary
+            if old_name in self.grn.input_species_names:
+                self.grn.input_species_names.remove(old_name)
+                self.grn.input_species_names.append(new_name)
+            
+            # Update gene regulators and products
+            for gene in self.grn.genes:
+                for regulator in gene['regulators']:
+                    if regulator['name'] == old_name:
+                        regulator['name'] = new_name
+                for product in gene['products']:
+                    if product['name'] == old_name:
+                        product['name'] = new_name
+            
+            # Force scene update
+            self.scene.update()
+
+    def delete_node(self, node):
+        # Confirm deletion
+        reply = QMessageBox.question(
+            self.parent(),
+            'Delete Node',
+            f"Are you sure you want to delete node '{node.name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Remove connected edges first
+            edges_to_remove = []
+            for edge in self.edges:
+                if edge.source_node == node or edge.target_node == node:
+                    edges_to_remove.append(edge)
+                    self.scene.removeItem(edge)
+            
+            # Remove edges from list
+            for edge in edges_to_remove:
+                self.edges.remove(edge)
+            
+            # Remove node from scene and dictionary
+            self.scene.removeItem(node)
+            del self.nodes[node.name]
+            
+            # Update GRN
+            # Remove species
+            self.grn.species = [s for s in self.grn.species if s['name'] != node.name]
+            
+            # Remove from input species if present
+            if node.name in self.grn.input_species_names:
+                self.grn.input_species_names.remove(node.name)
+            
+            # Remove genes where this node is a product
+            self.grn.genes = [g for g in self.grn.genes 
+                             if not any(p['name'] == node.name for p in g['products'])]
+            
+            # Remove this node as a regulator from remaining genes
+            for gene in self.grn.genes:
+                gene['regulators'] = [r for r in gene['regulators'] 
+                                    if r['name'] != node.name]
+                
+                # If a gene has no regulators left, remove it
+                if not gene['regulators']:
+                    self.grn.genes.remove(gene)
+            
+            # Force scene update
+            self.scene.update()
 
 class ParameterPanel(QWidget):
     def __init__(self):
