@@ -23,9 +23,10 @@ from enum import Enum
 
 
 class NetworkNode(QGraphicsEllipseItem):
-    def __init__(self, name, x, y, radius=20):
+    def __init__(self, name, x, y, radius=20, is_input=False):
         super().__init__(0, 0, radius*2, radius*2)
         self.name = name
+        self.is_input = is_input  # Store whether this is an input node
         self.setPos(x-radius, y-radius)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -57,14 +58,25 @@ class NetworkNode(QGraphicsEllipseItem):
         # Create a slightly contrasting color for nodes
         if app.styleHints().colorScheme() == Qt.ColorScheme.Dark:
             # In dark mode, make nodes slightly lighter
-            self.node_color = self.base_color.lighter(200)
+            base_lightness = 200
+            if self.is_input:
+                self.node_color = self.base_color.lighter(220)  # Even lighter for input nodes
+            else:
+                self.node_color = self.base_color.lighter(base_lightness)
         else:
             # In light mode, make nodes slightly darker
-            self.node_color = self.base_color.darker(110)
+            if self.is_input:
+                self.node_color = self.base_color.darker(120)  # Slightly darker for input nodes
+            else:
+                self.node_color = self.base_color.darker(110)
         
         # Update current colors
         self.setBrush(QBrush(self.node_color))
-        self.setPen(QPen(self.text_color))
+        
+        # Set pen with thicker width for input nodes
+        pen = QPen(self.text_color)
+        pen.setWidth(3 if self.is_input else 1)
+        self.setPen(pen)
         
         # Force a redraw
         if self.scene():
@@ -363,7 +375,10 @@ class NetworkView(QGraphicsView):
         if y is None:
             y = np.random.uniform(0, self.height())
 
-        node = NetworkNode(name, x, y)
+        # Check if this is an input node
+        is_input = name in self.grn.input_species_names
+
+        node = NetworkNode(name, x, y, is_input=is_input)
         self.scene.addItem(node)
         self.nodes[name] = node
 
