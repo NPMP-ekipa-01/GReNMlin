@@ -1059,9 +1059,19 @@ class NetworkStateDialog(QDialog):
         text_area.setText(formatted_state)
         layout.addWidget(text_area)
 
-        # Add OK button
-        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        button_box.accepted.connect(self.accept)
+        # Add button box with OK and Copy buttons
+        button_box = QDialogButtonBox()
+        ok_button = button_box.addButton(QDialogButtonBox.StandardButton.Ok)
+        copy_button = button_box.addButton(
+            "Copy to Clipboard", QDialogButtonBox.ButtonRole.ActionRole
+        )
+
+        # Connect button signals
+        ok_button.clicked.connect(self.accept)
+        copy_button.clicked.connect(
+            lambda: QApplication.clipboard().setText(formatted_state)
+        )
+
         layout.addWidget(button_box)
 
         self.setLayout(layout)
