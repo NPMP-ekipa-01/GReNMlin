@@ -373,12 +373,17 @@ class NetworkView(QGraphicsView):
 
                 self.temp_line.setLine(start_x, start_y, mouse_pos.x(), mouse_pos.y())
 
-            # Only highlight potential target nodes, don't complete edge yet
+            # Reset all node colors first
+            for node in self.nodes.values():
+                if node != self.source_node:
+                    node.update_colors()
+
+            # Then highlight the node under cursor if it's a valid target
             items = self.items(event.pos())
             for item in items:
                 if isinstance(item, NetworkNode) and item != self.source_node:
                     item.setBrush(QBrush(QColor(200, 255, 200)))  # Green highlight
-                    return
+                    break
 
         super().mouseMoveEvent(event)
 
