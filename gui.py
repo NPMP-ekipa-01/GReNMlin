@@ -922,6 +922,13 @@ class NetworkView(QGraphicsView):
             # Fit the view to the rectangle
             self.fitInView(nodes_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
+    def clear(self):
+        """Clear the network view"""
+        self.scene.clear()
+        self.nodes.clear()
+        self.edges.clear()
+        self.grn = GRN()
+
 
 class ParameterPanel(QWidget):
     def __init__(self):
@@ -1410,15 +1417,15 @@ class MainWindow(QMainWindow):
         self.network_view.set_edge_mode(enabled)
 
     def new_network(self):
-        if self.maybe_save():  # Check if we need to save first
-            # Clear the current network
-            self.network_view.scene.clear()
-            self.network_view.nodes.clear()
-            self.network_view.edges.clear()
-            self.network_view.grn = GRN()
-            self.current_file = None
-            self.modified = False
-            self.update_title()
+        # We do nothing if we are unable to save (potentially unsaved) changes
+        if not self.maybe_save():
+            return
+
+        # Clear the current network
+        self.network_view.clear()
+        self.current_file = None
+        self.modified = False
+        self.update_title()
 
     def save_network(self, save_as=False):
         """
@@ -1495,57 +1502,55 @@ class MainWindow(QMainWindow):
         dialog to choose the network file to load. Updates the UI to display
         the loaded network.
         """
-        if self.maybe_save():  # Check if we need to save first
-            file_name, _ = QFileDialog.getOpenFileName(
-                self, "Open Network", "", "GReNMlin Files (*.grn);;All Files (*)"
-            )
-            if not file_name:
-                return
+        # We do nothing if we are unable to save (potentially unsaved) changes
+        if not self.maybe_save():
+            return
 
-            try:
-                with open(file_name, "r") as f:
-                    network_data = json.load(f)
+        file_name, _ = QFileDialog.getOpenFileName(
+            self, "Open Network", "", "GReNMlin Files (*.grn);;All Files (*)"
+        )
+        if not file_name:
+            return
 
-                # Clear current network
-                self.network_view.scene.clear()
-                self.network_view.nodes.clear()
-                self.network_view.edges.clear()
-                self.network_view.grn = GRN()
+        try:
+            with open(file_name, "r") as f:
+                network_data = json.load(f)
 
-                # Restore GRN state
-                for species in network_data["grn"]["species"]:
-                    if species["name"] in network_data["grn"]["input_species_names"]:
-                        self.network_view.grn.add_input_species(species["name"])
-                    else:
-                        self.network_view.grn.add_species(
-                            species["name"], species["delta"]
-                        )
+            # Clear current network
+            self.network_view.clear()
 
-                # Create nodes
-                for node_data in network_data["nodes"]:
-                    self.network_view.add_node(
-                        node_data["name"], node_data["x"], node_data["y"]
-                    )
+            # Restore GRN state
+            for species in network_data["grn"]["species"]:
+                if species["name"] in network_data["grn"]["input_species_names"]:
+                    self.network_view.grn.add_input_species(species["name"])
+                else:
+                    self.network_view.grn.add_species(species["name"], species["delta"])
 
-                # Create edges
-                for edge_data in network_data["edges"]:
-                    source_node = self.network_view.nodes[edge_data["source"]]
-                    target_node = self.network_view.nodes[edge_data["target"]]
-                    edge = NetworkEdge(
-                        source_node, target_node, EdgeType(edge_data["type"])
-                    )
-                    self.network_view.scene.addItem(edge)
-                    self.network_view.edges.append(edge)
+            # Create nodes
+            for node_data in network_data["nodes"]:
+                self.network_view.add_node(
+                    node_data["name"], node_data["x"], node_data["y"]
+                )
 
-                # Restore genes
-                self.network_view.grn.genes = network_data["grn"]["genes"]
+            # Create edges
+            for edge_data in network_data["edges"]:
+                source_node = self.network_view.nodes[edge_data["source"]]
+                target_node = self.network_view.nodes[edge_data["target"]]
+                edge = NetworkEdge(
+                    source_node, target_node, EdgeType(edge_data["type"])
+                )
+                self.network_view.scene.addItem(edge)
+                self.network_view.edges.append(edge)
 
-                self.current_file = file_name
-                self.modified = False
-                self.update_title()
-                self.statusBar().showMessage(f"Network loaded from {file_name}", 3000)
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to load network: {str(e)}")
+            # Restore genes
+            self.network_view.grn.genes = network_data["grn"]["genes"]
+
+            self.current_file = file_name
+            self.modified = False
+            self.update_title()
+            self.statusBar().showMessage(f"Network loaded from {file_name}", 3000)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to load network: {str(e)}")
 
     def maybe_save(self):
         """
