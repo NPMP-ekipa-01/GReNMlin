@@ -1118,11 +1118,16 @@ class MainWindow(QMainWindow):
         """Initialize the main window and set up the user interface."""
         super().__init__()
 
-        # Track file and modification state
+        # Initialize state
         self.current_file = None
         self.modified = False
         self.update_title()
 
+        self.setup_ui()
+        self.setup_signals()
+
+    def setup_ui(self):
+        """Set up the user interface components."""
         self.setGeometry(100, 100, 1200, 800)
 
         # Ensure menu bar is visible with KDE global menu
@@ -1155,33 +1160,27 @@ class MainWindow(QMainWindow):
         # Add right panel to layout
         layout.addWidget(right_panel)
 
-        # Set up menu bar
+        # Set up menu and toolbar
         self.setup_menu()
-
-        # Set up toolbar
         self.setup_toolbar()
 
-        # Connect signals
+    def setup_signals(self):
+        """Connect all signals to their slots."""
+        # Simulation panel signals
         self.simulation_panel.run_button.clicked.connect(self.run_simulation)
 
-        # Connect network view signals
-        self.network_view.mode_changed.connect(self._handle_mode_change)
+        # Network view signals
+        self.network_view.mode_changed.connect(self.on_mode_changed)
         self.network_view.status_message.connect(self.statusBar().showMessage)
+        self.network_view.grn_modified.connect(self.on_network_modified)
 
-        # Connect to network changes
-        self.network_view.grn_modified.connect(
-            self.set_modified
-        )  # We'll add this signal
+    def on_mode_changed(self, mode):
+        """Handle network view mode changes."""
+        self.add_edge_action.setChecked(mode == EditMode.ADDING_EDGE)
 
-    def set_modified(self, modified=True):
-        """
-        Mark the current network as modified and update the window title.
-
-        Args:
-            `modified` (bool, optional): Whether the network has been modified.
-                Defaults to True.
-        """
-        self.modified = modified
+    def on_network_modified(self):
+        """Handle modifications to the network and update the window title."""
+        self.modified = True
         self.update_title()
 
     def update_title(self):
@@ -1556,11 +1555,6 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
-
-    def _handle_mode_change(self, mode):
-        """Handle network view mode changes"""
-        # Update toolbar actions
-        self.add_edge_action.setChecked(mode == EditMode.ADDING_EDGE)
 
     def reset_view(self):
         """Reset view transformation and center on nodes"""
