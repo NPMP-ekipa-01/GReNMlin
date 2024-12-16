@@ -4,7 +4,7 @@ import sys
 import numpy as np
 from matplotlib.figure import Figure
 from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QFont
+from PyQt6.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QFont, QFontDatabase
 from PyQt6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog,
                              QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                              QGraphicsEllipseItem, QGraphicsItem,
@@ -681,7 +681,11 @@ class NetworkStateDialog(QDialog):
         # Create text area
         text_area = QTextEdit()
         text_area.setReadOnly(True)
-        text_area.setFont(QFont("Courier"))  # Use monospace font
+
+        # Set the font to the system fixed font
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        font.setPointSize(QFont().pointSize())
+        text_area.setFont(font)
         
         # Format the network state nicely
         formatted_state = "Species:\n"
