@@ -982,6 +982,17 @@ class SimulationPanel(QWidget):
         time_widget.setLayout(time_layout)
         layout.addWidget(time_widget)
 
+        # t_single settings
+        t_single_widget = QWidget()
+        t_single_layout = QHBoxLayout()
+        t_single_layout.addWidget(QLabel("Time per Input Combination (t_single):"))
+        self.t_single_spin = QDoubleSpinBox()
+        self.t_single_spin.setRange(0, 1000)
+        self.t_single_spin.setValue(250)
+        t_single_layout.addWidget(self.t_single_spin)
+        t_single_widget.setLayout(t_single_layout)
+        layout.addWidget(t_single_widget)
+
         # Simulation buttons
         self.run_button = QPushButton("Run Simulation")
         layout.addWidget(self.run_button)
@@ -1019,6 +1030,78 @@ class SimulationResultsDialog(QWidget):
         ax.set_ylabel("Concentration")
         ax.set_title("Species Concentrations over Time")
         ax.legend()
+
+        self.setLayout(layout)
+
+class SingleSimulationDialog(QDialog):
+    """
+    Dialog for visualizing single simulation results.
+
+    Displays a graph of the simulation's time vs. species concentrations.
+    """
+    def __init__(self, T, Y, species_names, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Single Simulation Results")
+        self.setGeometry(100, 100, 800, 600)
+
+        layout = QVBoxLayout()
+
+        # Create matplotlib figure
+        figure = Figure()
+        canvas = FigureCanvas(figure)
+        ax = figure.add_subplot(111)
+
+        # Plot data
+        for i, species in enumerate(species_names):
+            ax.plot(T, Y[:, i], label=species)
+
+        ax.set_title("Single Simulation")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Concentration")
+        ax.legend()
+
+        layout.addWidget(canvas)
+
+        # Add button box
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        button_box.accepted.connect(self.accept)
+        layout.addWidget(button_box)
+
+        self.setLayout(layout)
+
+class SequenceSimulationDialog(QDialog):
+    """
+    Dialog for visualizing sequence simulation results.
+
+    Displays a graph of time vs. species concentrations for a sequence of inputs.
+    """
+    def __init__(self, T, Y, species_names, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Sequence Simulation Results")
+        self.setGeometry(100, 100, 800, 600)
+
+        layout = QVBoxLayout()
+
+        # Create matplotlib figure
+        figure = Figure()
+        canvas = FigureCanvas(figure)
+        ax = figure.add_subplot(111)
+
+        # Plot data
+        for i, species in enumerate(species_names):
+            ax.plot(T, Y[:, i], label=species)
+
+        ax.set_title("Sequence Simulation")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Concentration")
+        ax.legend()
+
+        layout.addWidget(canvas)
+
+        # Add button box
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
+        button_box.accepted.connect(self.accept)
+        layout.addWidget(button_box)
 
         self.setLayout(layout)
 
@@ -1369,6 +1452,12 @@ class MainWindow(QMainWindow):
     def run_simulation(self):
         grn = self.network_view.grn
         sim_time = self.simulation_panel.time_spin.value()
+        t_single = self.simulation_panel.t_single_spin.value()
+
+        # set sim_time and t_single to int
+        sim_time = int(sim_time)
+        t_single = int(t_single)
+
 
         # Make sure we have some nodes
         if not grn.species:
@@ -1386,42 +1475,43 @@ class MainWindow(QMainWindow):
         debug_dialog = NetworkStateDialog(network_state, self)
         debug_dialog.exec()
 
-        # TODO: Fix implementation of simulation
+        # this enables the simulation to run without a display
+        import matplotlib
+        matplotlib.use('Agg')
+
+        # plots the network in a separate window
+        # comment mathplotlib.use('Agg') to show the plot
+        # grn.plot_network()
+
+        # single simulation
+        IN = np.zeros(len(grn.input_species_names))
+        for i, species in enumerate(grn.input_species_names):
+            IN[i] = sim_time
+    
+        T_single, Y_single = simulator.simulate_single(grn, IN)
+    
+        # show results in a separate window
+        dialog_single = SingleSimulationDialog(T_single, Y_single, grn.species, self)
+        dialog_single.exec()
+
+        from itertools import product
+
+        num_inputs = len(grn.input_species_names)
+        levels = [0, sim_time]  # Possible levels for each input
+
+        # Generate all combinations of input levels
+        combinations = list(product(levels, repeat=num_inputs))
+        
+        print(sim_time)
+
+        # Simulate the sequence with dynamic combinations
+        T_sequence, Y_sequence = simulator.simulate_sequence(grn, combinations, t_single = t_single)
+
+        # show results in a separate window
+        dialog_sequence = SequenceSimulationDialog(T_sequence, Y_sequence, grn.species, self)
+        dialog_sequence.exec()
+
         return
-
-        # Get initial conditions and species names
-        initial_state = []
-        species_names = []
-        for species in grn.species:
-            species_names.append(species["name"])
-            if species["name"] in grn.input_species_names:
-                initial_state.append(10.0)  # Default input value
-            else:
-                initial_state.append(0.0)
-
-        # Run simulation
-        try:
-            # First generate the model
-            grn.generate_model()
-            # Then simulate
-            time_points, results = simulator.simulate_single(
-                grn, initial_state, t_end=sim_time, plot_on=False
-            )
-
-            # Convert results to dictionary for plotting
-            results_dict = {}
-            for i, name in enumerate(species_names):
-                results_dict[name] = results[:, i]
-
-            # Show results in new window
-            dialog = SimulationResultsDialog(time_points, results_dict, self)
-            dialog.show()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Simulation error: {str(e)}")
-            # Print more detailed error information
-            import traceback
-
-            traceback.print_exc()
 
     def toggle_edge_mode(self, enabled):
         self.network_view.set_edge_mode(enabled)
