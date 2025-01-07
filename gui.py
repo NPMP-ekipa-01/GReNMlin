@@ -105,7 +105,7 @@ class NetworkNode(QGraphicsEllipseItem):
         `label` (NodeLabel): The text label displaying the node's name
     """
 
-    def __init__(self, name, x, y, radius=20, is_input=False):
+    def __init__(self, name, x, y, radius=20, is_input=False, logic_type="and", alpha=10.0):
         """
         Initialize a new network node.
 
@@ -119,6 +119,8 @@ class NetworkNode(QGraphicsEllipseItem):
         super().__init__(0, 0, radius * 2, radius * 2)
         self.name = name
         self.is_input = is_input  # Store whether this is an input node
+        self.logic_type = logic_type
+        self.alpha = alpha
         self.setPos(x - radius, y - radius)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -332,7 +334,7 @@ class NetworkEdge(QGraphicsLineItem):
         `edge_type` (EdgeType): The type of regulation (ACTIVATION or INHIBITION)
     """
 
-    def __init__(self, source_node, target_node, edge_type=EdgeType.ACTIVATION):
+    def __init__(self, source_node, target_node, edge_type=EdgeType.ACTIVATION, kd=5.0, n=2.0):
         """
         Initialize a new network edge.
 
@@ -345,6 +347,8 @@ class NetworkEdge(QGraphicsLineItem):
         self.source_node = source_node
         self.target_node = target_node
         self.edge_type = edge_type
+        self.kd = kd
+        self.n = n
 
         # Connect to both palette and color scheme changes
         app = QApplication.instance()
@@ -465,7 +469,9 @@ class NetworkView(QGraphicsView):
 
         # Node addition state
         self.node_type_to_add = None
+        self.node_logic_to_add = None
         self.node_name_to_add = None
+        self.node_alpha_to_add = None
 
     @property
     def mode(self):
@@ -520,7 +526,9 @@ class NetworkView(QGraphicsView):
         if event.key() == Qt.Key.Key_Escape:
             self.mode = EditMode.NORMAL
             self.node_type_to_add = None
+            self.node_logic_to_add = None
             self.node_name_to_add = None
+            self.node_alpha_to_add = None
         else:
             super().keyPressEvent(event)
 
@@ -533,18 +541,14 @@ class NetworkView(QGraphicsView):
             scene_pos = self.mapToScene(event.pos())
             x, y = scene_pos.x(), scene_pos.y()
 
-            # Add the node at click position
-            if self.node_type_to_add == "Input":
-                self.grn.add_input_species(self.node_name_to_add)
-            else:
-                self.grn.add_species(self.node_name_to_add, 0.1)
-
-            self.add_node(self.node_name_to_add, x, y)
+            self.add_node(self.node_name_to_add, self.node_logic_to_add, x, y)
 
             # Reset node adding state
             self.mode = EditMode.NORMAL
             self.node_type_to_add = None
+            self.node_logic_to_add = None
             self.node_name_to_add = None
+            self.node_alpha_to_add = None
 
             # Reset cursor and status
             self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -553,7 +557,7 @@ class NetworkView(QGraphicsView):
         else:
             super().mousePressEvent(event)
 
-    def start_add_node(self, node_name, node_type):
+    def start_add_node(self, node_name, node_type, logic_type, alpha):
         """Start the process of adding a node"""
         # Clean up any ongoing edge creation first
         if self.mode == EditMode.ADDING_EDGE:
@@ -565,10 +569,12 @@ class NetworkView(QGraphicsView):
         # Set the node properties
         self.node_name_to_add = node_name
         self.node_type_to_add = node_type
+        self.node_logic_to_add = logic_type
+        self.node_alpha_to_add = alpha
         # Change to node adding mode
         self.mode = EditMode.ADDING_NODE
 
-    def add_node(self, name, x=None, y=None):
+    def add_node(self, name, logic_type, x=None, y=None):
         if x is None:
             x = np.random.uniform(0, self.width())
         if y is None:
@@ -577,7 +583,7 @@ class NetworkView(QGraphicsView):
         # Check if this is an input node
         is_input = name in self.grn.input_species_names
 
-        node = NetworkNode(name, x, y, is_input=is_input)
+        node = NetworkNode(name, x, y, is_input=is_input, logic_type=logic_type)
         self.scene.addItem(node)
         self.nodes[name] = node
 
@@ -626,7 +632,7 @@ class NetworkView(QGraphicsView):
                 "n": 2,
             }
             product = {"name": target_node.name}
-            self.grn.add_gene(10, [regulator], [product])
+            self.grn.add_gene(10, [regulator], [product], target_node.logic_type)
 
             # Reset state
             self.mode = EditMode.NORMAL
@@ -1316,6 +1322,10 @@ class MainWindow(QMainWindow):
     def setup_toolbar(self):
         toolbar = self.addToolBar("Edit")
 
+        # Add Species button
+        add_species_action = toolbar.addAction("Add Species")
+        add_species_action.triggered.connect(self.add_species_dialog)
+
         # Add Node button
         add_node_action = toolbar.addAction("Add Node")
         add_node_action.triggered.connect(self.add_node_dialog)
@@ -1373,10 +1383,105 @@ class MainWindow(QMainWindow):
         about_action = help_menu.addAction("About")
         about_action.triggered.connect(self.show_about_dialog)
 
+
+    def add_species_dialog(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Species")
+        layout = QVBoxLayout()
+
+        # Add name input
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Species name:"))
+        name_input = QLineEdit()
+        name_layout.addWidget(name_input)
+        layout.addLayout(name_layout)
+
+        # Add species type selection
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Species type:"))
+        input_radio = QRadioButton("Input")
+        output_radio = QRadioButton("Output")
+        output_radio.setChecked(True)  # Set Output (regular) as default
+
+        # Add radio buttons to a button group
+        type_group = QButtonGroup()
+        type_group.addButton(input_radio)
+        type_group.addButton(output_radio)
+
+        type_layout.addWidget(input_radio)
+        type_layout.addWidget(output_radio)
+        layout.addLayout(type_layout)
+
+        # Add delta input
+        delta_layout = QHBoxLayout()
+        delta_layout.addWidget(QLabel("Delta (degradation rate):"))
+        delta_spin = QDoubleSpinBox()
+        delta_spin.setRange(0, 1.0)
+        delta_spin.setSingleStep(0.1)
+        delta_spin.setValue(0.1)
+        delta_layout.addWidget(delta_spin)
+        layout.addLayout(delta_layout)
+
+        # Toggle delta visibility based on species type
+        def on_type_changed():
+            delta_spin.setEnabled(output_radio.isChecked())
+            if input_radio.isChecked():
+                delta_spin.setValue(0)  # Set delta to 0 for input species
+
+        input_radio.toggled.connect(on_type_changed)
+        output_radio.toggled.connect(on_type_changed)
+
+        # Add buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+
+        # Custom accept handler to validate input
+        def handle_accept():
+            name = name_input.text().strip()
+            if not name:
+                QMessageBox.warning(dialog, "Warning", "Please enter a species name.")
+                return
+            if name in self.network_view.grn.species_names:
+                QMessageBox.warning(
+                    dialog, "Warning", "A species with this name already exists."
+                )
+                return
+            dialog.accept()
+
+        button_box.accepted.connect(handle_accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+
+        dialog.setLayout(layout)
+
+        # Show dialog and process result
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = name_input.text().strip()
+            is_input = input_radio.isChecked()
+            delta = delta_spin.value()
+
+            # Add to GRN model
+            if is_input:
+                self.network_view.grn.add_input_species(name)
+            else:
+                self.network_view.grn.add_species(name, delta)
+
+            self.network_view.grn_modified.emit()  # Signal that the network was modified
+
     def add_node_dialog(self):
         # If we're in edge mode, uncheck the edge button first
         if self.network_view.mode == EditMode.ADDING_EDGE:
             self.add_edge_action.setChecked(False)
+
+        # Check if we have any species defined
+        if not self.network_view.grn.species_names:
+            QMessageBox.warning(
+                self,
+                "Warning",
+                "Please add at least one species first using the 'Add Species' button."
+            )
+            return
 
         # Create a custom dialog with both name input and node type selection
         dialog = QDialog(self)
@@ -1389,6 +1494,25 @@ class MainWindow(QMainWindow):
         name_input = QLineEdit()
         name_layout.addWidget(name_input)
         layout.addLayout(name_layout)
+
+        # Species selection
+        species_layout = QHBoxLayout()
+        species_layout.addWidget(QLabel("Select species:"))
+        species_combo = QComboBox()
+        species_combo.addItems(self.network_view.grn.species_names)
+        species_layout.addWidget(species_combo)
+        layout.addLayout(species_layout)
+
+
+        # Alpha value input
+        alpha_layout = QHBoxLayout()
+        alpha_layout.addWidget(QLabel("Alpha:"))
+        alpha_spin = QDoubleSpinBox()
+        alpha_spin.setRange(0.0, 100.0)
+        alpha_spin.setValue(10.0)
+        alpha_spin.setSingleStep(0.1)
+        alpha_layout.addWidget(alpha_spin)
+        layout.addLayout(alpha_layout)
 
         # Add type selection with radio buttons
         type_layout = QHBoxLayout()
@@ -1407,6 +1531,23 @@ class MainWindow(QMainWindow):
         type_layout.addWidget(regular_radio)
         type_layout.addWidget(input_radio)
         layout.addLayout(type_layout)
+
+        # Logic type selection
+        logic_layout = QHBoxLayout()
+        logic_layout.addWidget(QLabel("Logic type:"))
+
+        logic_and = QRadioButton("AND")
+        logic_or = QRadioButton("OR")
+        logic_and.setChecked(True)  # Set AND as default
+
+        # Add logic radio buttons to a button group
+        logic_group = QButtonGroup()
+        logic_group.addButton(logic_and)
+        logic_group.addButton(logic_or)
+
+        logic_layout.addWidget(logic_and)
+        logic_layout.addWidget(logic_or)
+        layout.addLayout(logic_layout)
 
         # Add buttons
         button_box = QDialogButtonBox(
@@ -1434,9 +1575,12 @@ class MainWindow(QMainWindow):
 
         # Show dialog and process result
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            name = name_input.text().strip()
-            node_type = "Input" if input_radio.isChecked() else "Regular"
-            self.network_view.start_add_node(name, node_type)
+            species_name = species_combo.currentText()
+            logic_type = "and" if logic_and.isChecked() else "or"
+            alpha = alpha_spin.value()
+            is_input = species_name in self.network_view.grn.input_species_names
+
+            self.network_view.start_add_node(species_name, is_input, logic_type, alpha)
 
     def edge_type_changed(self, index):
         """
@@ -1487,9 +1631,9 @@ class MainWindow(QMainWindow):
         IN = np.zeros(len(grn.input_species_names))
         for i, species in enumerate(grn.input_species_names):
             IN[i] = sim_time
-    
+
         T_single, Y_single = simulator.simulate_single(grn, IN)
-    
+
         # show results in a separate window
         dialog_single = SingleSimulationDialog(T_single, Y_single, grn.species, self)
         dialog_single.exec()
@@ -1501,7 +1645,7 @@ class MainWindow(QMainWindow):
 
         # Generate all combinations of input levels
         combinations = list(product(levels, repeat=num_inputs))
-        
+
         print(sim_time)
 
         # Simulate the sequence with dynamic combinations
