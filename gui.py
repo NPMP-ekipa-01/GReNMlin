@@ -13,6 +13,7 @@ ICON_FILENAME = "logo.png"
 import json
 import os
 import sys
+import uuid
 from enum import Enum
 
 import numpy as np
@@ -105,7 +106,7 @@ class NetworkNode(QGraphicsEllipseItem):
         `label` (NodeLabel): The text label displaying the node's name
     """
 
-    def __init__(self, species_name, grn, x, y, radius=20, logic_type="and", alpha=10.0, display_name=None):
+    def __init__(self, species_name="", grn=None, x=0.0, y=0.0, radius=20, logic_type="and", alpha=10.0, display_name=None):
         """
         Initialize a new network node.
 
@@ -122,6 +123,7 @@ class NetworkNode(QGraphicsEllipseItem):
         self.logic_type = logic_type
         self.alpha = alpha
         self.display_name = display_name or species_name  # Allow different display name than species name
+        self.node_id = str(uuid.uuid4())
         self.setPos(x - radius, y - radius)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -140,6 +142,7 @@ class NetworkNode(QGraphicsEllipseItem):
         app = QApplication.instance()
         app.paletteChanged.connect(self.update_colors)
         app.styleHints().colorSchemeChanged.connect(self.update_colors)
+        self.setZValue(1)  # Edges should have setZValue(-1)
 
     @property
     def is_input(self):
@@ -195,7 +198,8 @@ class NetworkNode(QGraphicsEllipseItem):
                 if view.mode == EditMode.ADDING_EDGE:
                     view.node_clicked(self)
                 else:
-                    super().mousePressEvent(event)
+                    super().mousePressEvent(event)  # Allow normal drag behavior
+            self.update()
 
     def mouseReleaseEvent(self, event):
         self.setBrush(QBrush(self.node_color))  # Reset to node color
@@ -554,6 +558,8 @@ class NetworkView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
+        self.setInteractive(True)
+        self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)  # Allow selection rectangle
 
         # Initialize GRN
         self.grn = GRN()
@@ -567,7 +573,7 @@ class NetworkView(QGraphicsView):
         self.edge_type = EdgeType.ACTIVATION
 
         # Node addition state
-        self.node_type_to_add = None
+        self.node_logic_to_add = None
         self.node_display_name = None
         self.node_name_to_add = None
         self.node_alpha_to_add = None
@@ -614,39 +620,37 @@ class NetworkView(QGraphicsView):
             self.status_message.emit("Click and drag from source node to create edge")
         elif self.mode == EditMode.ADDING_NODE:
             self.setCursor(Qt.CursorShape.CrossCursor)
-            if self.node_type_to_add and self.node_name_to_add:
-                self.status_message.emit(
-                    f"Click to place {self.node_type_to_add} node '{self.node_name_to_add}' (Press Esc to cancel)"
-                )
-            else:
-                self.status_message.emit("Click to place node (Press Esc to cancel)")
+            self.status_message.emit("Click to place node (Press Esc to cancel)")
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
             self.mode = EditMode.NORMAL
-            self.node_type_to_add = None
+            self.node_logic_to_add = None
             self.node_name_to_add = None
             self.node_alpha_to_add = None
         else:
             super().keyPressEvent(event)
 
     def mousePressEvent(self, event):
-        if (
-            self.mode == EditMode.ADDING_NODE
-            and event.button() == Qt.MouseButton.LeftButton
-        ):
-            # Get click position in scene coordinates
+        if (self.mode == EditMode.ADDING_NODE and
+            event.button() == Qt.MouseButton.LeftButton):
             scene_pos = self.mapToScene(event.pos())
             x, y = scene_pos.x(), scene_pos.y()
 
-            self.add_node(self.node_name_to_add, x, y, display_name=self.node_display_name)
+            self.add_node(
+                species_name=self.node_name_to_add,
+                logic_type=self.node_logic_to_add,
+                x=x,
+                y=y,
+                display_name=self.node_display_name
+            )
 
             # Reset node adding state
             self.mode = EditMode.NORMAL
-            self.node_type_to_add = None
-            self.node_display_name = None
+            self.node_logic_to_add = None
             self.node_name_to_add = None
             self.node_alpha_to_add = None
+            self.node_display_name = None
 
             # Reset cursor and status
             self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -655,7 +659,7 @@ class NetworkView(QGraphicsView):
         else:
             super().mousePressEvent(event)
 
-    def start_add_node(self, node_name, node_type, alpha, display_name):
+    def start_add_node(self, node_name, logic_type, alpha, display_name):
         """Start the process of adding a node"""
         # Clean up any ongoing edge creation first
         if self.mode == EditMode.ADDING_EDGE:
@@ -666,7 +670,7 @@ class NetworkView(QGraphicsView):
 
         # Set the node properties
         self.node_name_to_add = node_name
-        self.node_type_to_add = node_type
+        self.node_logic_to_add = logic_type
         self.node_alpha_to_add = alpha
         self.node_display_name = display_name  # Store display name
 
@@ -679,9 +683,16 @@ class NetworkView(QGraphicsView):
         if y is None:
             y = np.random.uniform(0, self.height())
 
-        node = NetworkNode(species_name, self.grn, x, y, logic_type=logic_type, display_name=display_name)
+        node = NetworkNode(
+                species_name=species_name,
+                grn=self.grn,
+                x=x,
+                y=y,
+                logic_type=logic_type,  # Now correctly passing logic_type
+                display_name=display_name
+            )
         self.scene.addItem(node)
-        self.nodes[species_name] = node
+        self.nodes[node.node_id] = node
 
         self.grn_modified.emit()
         return node
@@ -897,7 +908,7 @@ class NetworkView(QGraphicsView):
 
             # Remove node from scene and dictionary
             self.scene.removeItem(node)
-            del self.nodes[node.species_name]
+            del self.nodes[node.node_id]
 
             # Update GRN
             # Remove species
@@ -941,13 +952,41 @@ class NetworkView(QGraphicsView):
             `node` (NetworkNode): The node to toggle
         """
         if node.is_input:
-            # Converting from input to regular
-            self.grn.input_species_names.remove(node.species_name)
-            # Add as regular species with default delta
-            for species in self.grn.species:
-                if species["name"] == node.species_name:
-                    species["delta"] = 0.1  # Default degradation rate
-                    break
+            # Converting from input to regular - show dialog for delta
+            dialog = QDialog(self.parent())
+            dialog.setWindowTitle("Set Degradation Rate")
+            layout = QVBoxLayout()
+
+            # Add delta input
+            delta_layout = QHBoxLayout()
+            delta_layout.addWidget(QLabel("Delta (degradation rate):"))
+            delta_spin = QDoubleSpinBox()
+            delta_spin.setRange(0, 1.0)
+            delta_spin.setSingleStep(0.1)
+            delta_spin.setValue(0.1)
+            delta_spin.setDecimals(3)
+            delta_layout.addWidget(delta_spin)
+            layout.addLayout(delta_layout)
+
+            # Add buttons
+            button_box = QDialogButtonBox(
+                QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+            )
+            button_box.accepted.connect(dialog.accept)
+            button_box.rejected.connect(dialog.reject)
+            layout.addWidget(button_box)
+
+            dialog.setLayout(layout)
+
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                delta = delta_spin.value()
+                # Converting from input to regular
+                self.grn.input_species_names.remove(node.species_name)
+                # Add as regular species with specified delta
+                for species in self.grn.species:
+                    if species["name"] == node.species_name:
+                        species["delta"] = delta
+                        break
         else:
             # Converting from regular to input
             if node.species_name not in self.grn.input_species_names:
@@ -971,21 +1010,40 @@ class NetworkView(QGraphicsView):
         if not self.nodes:
             return
 
-        # Calculate bounding rect of all nodes
-        nodes_rect = None
-        for node in self.nodes.values():
-            node_rect = node.sceneBoundingRect()
-            if nodes_rect is None:
-                nodes_rect = node_rect
-            else:
-                nodes_rect = nodes_rect.united(node_rect)
+        min_x = float('inf')
+        min_y = float('inf')
+        max_x = float('-inf')
+        max_y = float('-inf')
 
-        if nodes_rect:
-            # Add some padding
+        # Include all nodes in calculation
+        for node in self.nodes.values():
+            rect = node.sceneBoundingRect()
+            min_x = min(min_x, rect.left())
+            min_y = min(min_y, rect.top())
+            max_x = max(max_x, rect.right())
+            max_y = max(max_y, rect.bottom())
+
+        # Include all edges in calculation
+        for edge in self.edges:
+            line = edge.line()
+            min_x = min(min_x, min(line.x1(), line.x2()))
+            min_y = min(min_y, min(line.y1(), line.y2()))
+            max_x = max(max_x, max(line.x1(), line.x2()))
+            max_y = max(max_y, max(line.y1(), line.y2()))
+
+        if min_x != float('inf'):  # Check if we found any items
+            # Create scene rect with padding
             padding = 50
-            nodes_rect.adjust(-padding, -padding, padding, padding)
-            # Fit the view to the rectangle
-            self.fitInView(nodes_rect, Qt.AspectRatioMode.KeepAspectRatio)
+            scene_rect = QRectF(
+                min_x - padding,
+                min_y - padding,
+                max_x - min_x + 2*padding,
+                max_y - min_y + 2*padding
+            )
+
+            # Update scene rect and fit view
+            self.scene.setSceneRect(scene_rect)
+            self.fitInView(scene_rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def clear(self):
         """Clear the network view"""
@@ -1601,11 +1659,11 @@ class MainWindow(QMainWindow):
             if not name:
                 QMessageBox.warning(dialog, "Warning", "Please enter a node name.")
                 return
-            if name in self.network_view.nodes:
-                QMessageBox.warning(
-                    dialog, "Warning", "A node with this name already exists."
-                )
-                return
+            # if name in self.network_view.nodes:
+            #     QMessageBox.warning(
+            #         dialog, "Warning", "A node with this name already exists."
+            #     )
+            #     return
             dialog.accept()
 
         button_box.accepted.connect(handle_accept)
@@ -1740,36 +1798,54 @@ class MainWindow(QMainWindow):
                 "nodes": [],
                 "edges": [],
                 "grn": {
-                    "species": self.network_view.grn.species,
+                    "species": [],  # We'll rebuild this from current state
                     "input_species_names": self.network_view.grn.input_species_names,
-                    "genes": self.network_view.grn.genes,
+                "genes": self.network_view.grn.genes,
                 },
             }
 
-            # Save node positions
-            for name, node in self.network_view.nodes.items():
-                network_data["nodes"].append(
-                    {
-                        "species_name": node.species_name,
-                        "display_name": node.display_name,
-                        "x": node.pos().x(),
-                        "y": node.pos().y(),
-                        "logic_type": node.logic_type,
-                        "alpha": node.alpha
-                    }
-                )
+            # Save nodes and rebuild species list
+            species_data = {}  # Track species and their deltas
+            for node in self.network_view.nodes.values():
+                # Save node data
 
-            # Save edges
+                network_data["nodes"].append({
+                    "node_id": node.node_id,
+                    "species_name": node.species_name,
+                    "display_name": node.display_name,
+                    "x": node.pos().x(),
+                    "y": node.pos().y(),
+                    "logic_type": str(node.logic_type),
+                    "alpha": node.alpha
+                })
+
+
+                # Track species data
+                if node.species_name not in species_data:
+                    # Find species data from GRN
+                    species_info = next(
+                        (s for s in self.network_view.grn.species if s["name"] == node.species_name),
+                        None
+                    )
+                    if species_info:
+                        species_data[node.species_name] = species_info
+
+            # Rebuild species list
+            network_data["grn"]["species"] = list(species_data.values())
+
+            # Save valid edges (those with existing node IDs)
+            valid_node_ids = {node.node_id for node in self.network_view.nodes.values()}
             for edge in self.network_view.edges:
-                network_data["edges"].append(
-                    {
-                        "source": edge.source_node.species_name,
-                        "target": edge.target_node.species_name,
+                if edge.source_node.node_id in valid_node_ids and edge.target_node.node_id in valid_node_ids:
+                    network_data["edges"].append({
+                        "source_id": edge.source_node.node_id,
+                        "target_id": edge.target_node.node_id,
+                        "source_species": edge.source_node.species_name,
+                        "target_species": edge.target_node.species_name,
                         "type": edge.edge_type.value,
                         "kd": edge.kd,
                         "n": edge.n
-                    }
-                )
+                    })
 
             # Save to file
             with open(self.current_file, "w") as f:
@@ -1809,39 +1885,48 @@ class MainWindow(QMainWindow):
             self.network_view.clear()
 
             # Restore GRN state
+            # First, restore all species with their deltas
             for species in network_data["grn"]["species"]:
                 if species["name"] in network_data["grn"]["input_species_names"]:
                     self.network_view.grn.add_input_species(species["name"])
                 else:
-                    self.network_view.grn.add_species(species["name"], species["delta"])
+                    self.network_view.grn.add_species(species["name"], species.get("delta", 0.1))
 
-
-            # Create nodes with all attributes
+            # Create nodes first and keep a mapping of node IDs
+            node_map = {}
             for node_data in network_data["nodes"]:
                 node = self.network_view.add_node(
-                    node_data["species_name"],
-                    node_data.get("logic_type", "and"),  # Default to "and" if not present
-                    node_data["x"],
-                    node_data["y"],
-                    display_name=node_data.get("display_name")  # Use species_name if not present
+                    species_name=node_data["species_name"],
+                    logic_type=node_data.get("logic_type", "and"),  # Make sure this is a string
+                    x=node_data["x"],
+                    y=node_data["y"],
+                    display_name=node_data.get("display_name")
                 )
-                node.alpha = node_data.get("alpha", 10.0)  # Default to 10.0 if not present
+                node.alpha = node_data.get("alpha", 10.0)
+                node_id = node_data.get("node_id", str(uuid.uuid4()))
+                node.node_id = node_id
+                node.logic_type = "and" if not isinstance(node_data.get("logic_type"), str) else node_data.get("logic_type")
+                node_map[node_id] = node
 
-
-            # Create edges with parameters
+            # Create edges using the node map, skipping invalid edges
+            seen_edges = set()
             for edge_data in network_data["edges"]:
-                source_node = self.network_view.nodes[edge_data["source"]]
-                target_node = self.network_view.nodes[edge_data["target"]]
-                edge = NetworkEdge(
-                    source_node,
-                    target_node,
-                    EdgeType(edge_data["type"]),
-                    kd=edge_data.get("kd", 5.0),  # Default to 5.0 if not present
-                    n=edge_data.get("n", 2.0)     # Default to 2.0 if not present
-                )
-                self.network_view.scene.addItem(edge)
-                self.network_view.edges.append(edge)
+                source_node = node_map.get(edge_data.get("source_id"))
+                target_node = node_map.get(edge_data.get("target_id"))
 
+                if source_node and target_node:
+                    edge_id = (source_node.node_id, target_node.node_id)
+                    if edge_id not in seen_edges:
+                        edge = NetworkEdge(
+                            source_node,
+                            target_node,
+                            EdgeType(edge_data["type"]),
+                            kd=edge_data.get("kd", 5.0),
+                            n=edge_data.get("n", 2.0)
+                        )
+                        self.network_view.scene.addItem(edge)
+                        self.network_view.edges.append(edge)
+                        seen_edges.add(edge_id)
 
             # Restore genes
             self.network_view.grn.genes = network_data["grn"]["genes"]
@@ -1850,6 +1935,7 @@ class MainWindow(QMainWindow):
             self.modified = False
             self.update_title()
             self.statusBar().showMessage(f"Network loaded from {file_name}", 3000)
+
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to load network: {str(e)}")
 
