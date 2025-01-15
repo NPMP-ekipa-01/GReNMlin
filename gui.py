@@ -541,6 +541,7 @@ class NetworkView(QGraphicsView):
     mode_changed = pyqtSignal(EditMode)  # Signal when edit mode changes
     status_message = pyqtSignal(str)  # Signal for status bar updates
     grn_modified = pyqtSignal()  # Signal when network is modified
+    item_selected = pyqtSignal(object)  # Signal when a node or edge is selected
 
     def __init__(self, parent=None):
         """
@@ -578,6 +579,8 @@ class NetworkView(QGraphicsView):
         self.node_name_to_add = None
         self.node_alpha_to_add = None
 
+        self.scene.selectionChanged.connect(self.handle_selection_changed)
+
     @property
     def mode(self):
         return self._mode
@@ -588,6 +591,15 @@ class NetworkView(QGraphicsView):
             self._mode = new_mode
             self._handle_mode_change()
             self.mode_changed.emit(new_mode)
+
+    def handle_selection_changed(self):
+        selected_items = self.scene.selectedItems()
+        if len(selected_items) == 1:
+            item = selected_items[0]
+            if isinstance(item, (NetworkNode, NetworkEdge)):
+                self.item_selected.emit(item)
+        else:
+            self.item_selected.emit(None)
 
     def _handle_mode_change(self):
         """
@@ -1059,31 +1071,203 @@ class ParameterPanel(QWidget):
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
 
-        # Parameter controls
-        param_label = QLabel("Model Parameters")
-        self.main_layout.addWidget(param_label)
+        self.selected_item = None
+        self.node_params = self.create_node_parameters()
+        self.edge_params = self.create_edge_parameters()
+        self.empty_params = QLabel("Select a node or edge to edit parameters")
 
-        # Add parameter controls based on params.py
-        self.alpha_spin = self.add_parameter_spinbox("Alpha", 0.1, 0.0, 100.0)
-        self.kd_spin = self.add_parameter_spinbox("Kd", 1.0, 0.0, 100.0)
-        self.delta_spin = self.add_parameter_spinbox("Delta", 0.05, 0.0, 1.0)
-        self.n_spin = self.add_parameter_spinbox("n", 2.0, 1.0, 10.0)
+        # Add all parameter widgets
+        self.main_layout.addWidget(self.empty_params)
+        self.main_layout.addWidget(self.node_params)
+        self.node_params.hide()
+        self.main_layout.addWidget(self.edge_params)
+        self.edge_params.hide()
 
         self.main_layout.addStretch()
 
-    def add_parameter_spinbox(self, label, default, min_val, max_val):
-        container = QWidget()
-        layout = QHBoxLayout()
-        layout.addWidget(QLabel(label))
-        spinbox = QDoubleSpinBox()
-        spinbox.setRange(min_val, max_val)
-        spinbox.setValue(default)
-        spinbox.setSingleStep(0.1)
-        layout.addWidget(spinbox)
-        container.setLayout(layout)
-        self.main_layout.addWidget(container)
-        return spinbox
+    def create_node_parameters(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
 
+        # Title
+        title = QLabel("Node Parameters")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title)
+
+        # Species name (read-only)
+        species_layout = QHBoxLayout()
+        species_layout.addWidget(QLabel("Species:"))
+        self.species_label = QLabel()
+        self.species_label.setStyleSheet("font-weight: bold;")
+        species_layout.addWidget(self.species_label)
+        layout.addLayout(species_layout)
+
+        # Display name
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Display name:"))
+        self.display_name_edit = QLineEdit()
+        name_layout.addWidget(self.display_name_edit)
+        layout.addLayout(name_layout)
+
+        # Alpha value
+        alpha_layout = QHBoxLayout()
+        alpha_layout.addWidget(QLabel("Alpha:"))
+        self.alpha_spin = QDoubleSpinBox()
+        self.alpha_spin.setRange(0.0, 100.0)
+        self.alpha_spin.setSingleStep(0.1)
+        alpha_layout.addWidget(self.alpha_spin)
+        layout.addLayout(alpha_layout)
+
+        # Logic type
+        logic_layout = QHBoxLayout()
+        logic_layout.addWidget(QLabel("Logic type:"))
+        self.logic_combo = QComboBox()
+        self.logic_combo.addItems(["and", "or"])
+        logic_layout.addWidget(self.logic_combo)
+        layout.addLayout(logic_layout)
+
+        # Save button
+        self.save_node_button = QPushButton("Apply Changes")
+        self.save_node_button.clicked.connect(self.save_node_parameters)
+        layout.addWidget(self.save_node_button)
+
+        widget.setLayout(layout)
+        return widget
+
+    def create_edge_parameters(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        # Title
+        title = QLabel("Edge Parameters")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title)
+
+        # Source and target labels
+        source_layout = QHBoxLayout()
+        source_layout.addWidget(QLabel("Source:"))
+        self.source_label = QLabel()
+        self.source_label.setStyleSheet("font-weight: bold;")
+        source_layout.addWidget(self.source_label)
+        layout.addLayout(source_layout)
+
+        target_layout = QHBoxLayout()
+        target_layout.addWidget(QLabel("Target:"))
+        self.target_label = QLabel()
+        self.target_label.setStyleSheet("font-weight: bold;")
+        target_layout.addWidget(self.target_label)
+        layout.addLayout(target_layout)
+
+        # Edge type
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Type:"))
+        self.edge_type_combo = QComboBox()
+        self.edge_type_combo.addItems(["Activation", "Inhibition"])
+        type_layout.addWidget(self.edge_type_combo)
+        layout.addLayout(type_layout)
+
+        # Kd value
+        kd_layout = QHBoxLayout()
+        kd_layout.addWidget(QLabel("Kd:"))
+        self.kd_spin = QDoubleSpinBox()
+        self.kd_spin.setRange(0.1, 100.0)
+        self.kd_spin.setSingleStep(0.1)
+        kd_layout.addWidget(self.kd_spin)
+        layout.addLayout(kd_layout)
+
+        # n value
+        n_layout = QHBoxLayout()
+        n_layout.addWidget(QLabel("n:"))
+        self.n_spin = QDoubleSpinBox()
+        self.n_spin.setRange(1.0, 10.0)
+        self.n_spin.setSingleStep(0.1)
+        n_layout.addWidget(self.n_spin)
+        layout.addLayout(n_layout)
+
+        # Save button
+        self.save_edge_button = QPushButton("Apply Changes")
+        self.save_edge_button.clicked.connect(self.save_edge_parameters)
+        layout.addWidget(self.save_edge_button)
+
+        widget.setLayout(layout)
+        return widget
+
+    def show_node_parameters(self, node):
+        self.selected_item = node
+        self.empty_params.hide()
+        self.edge_params.hide()
+        self.node_params.show()
+
+        # Update values
+        self.species_label.setText(node.species_name)
+        self.display_name_edit.setText(node.display_name)
+        self.alpha_spin.setValue(node.alpha)
+        self.logic_combo.setCurrentText(node.logic_type)
+
+    def show_edge_parameters(self, edge):
+        self.selected_item = edge
+        self.empty_params.hide()
+        self.node_params.hide()
+        self.edge_params.show()
+
+        # Update values
+        self.source_label.setText(edge.source_node.display_name)
+        self.target_label.setText(edge.target_node.display_name)
+        self.edge_type_combo.setCurrentIndex(0 if edge.edge_type == EdgeType.ACTIVATION else 1)
+        self.kd_spin.setValue(edge.kd)
+        self.n_spin.setValue(edge.n)
+
+    def clear_parameters(self):
+        self.selected_item = None
+        self.node_params.hide()
+        self.edge_params.hide()
+        self.empty_params.show()
+
+    def save_node_parameters(self):
+        if not isinstance(self.selected_item, NetworkNode):
+            return
+
+        node = self.selected_item
+        # Update node parameters
+        node.display_name = self.display_name_edit.text()
+        node.label.text = node.display_name
+        node.alpha = self.alpha_spin.value()
+        node.logic_type = self.logic_combo.currentText()
+
+        # Update scene
+        if node.scene():
+            node.scene().update()
+
+        # Emit modification signal through the view
+        if isinstance(node.scene().views()[0], NetworkView):
+            node.scene().views()[0].grn_modified.emit()
+
+    def save_edge_parameters(self):
+        if not isinstance(self.selected_item, NetworkEdge):
+            return
+
+        edge = self.selected_item
+        # Update edge parameters
+        edge.edge_type = EdgeType.ACTIVATION if self.edge_type_combo.currentText() == "Activation" else EdgeType.INHIBITION
+        edge.kd = self.kd_spin.value()
+        edge.n = self.n_spin.value()
+
+        # Update visual appearance
+        edge.update_colors()
+
+        # Update GRN model
+        view = edge.scene().views()[0]
+        if isinstance(view, NetworkView):
+            # Find and update the corresponding gene in the GRN
+            for gene in view.grn.genes:
+                for regulator in gene["regulators"]:
+                    if (regulator["name"] == edge.source_node.species_name and
+                        gene["products"][0]["name"] == edge.target_node.species_name):
+                        regulator["Kd"] = edge.kd
+                        regulator["n"] = edge.n
+                        regulator["type"] = edge.edge_type.value
+                        view.grn_modified.emit()
+                        break
 
 class SimulationPanel(QWidget):
     def __init__(self):
@@ -1417,6 +1601,16 @@ class MainWindow(QMainWindow):
         self.network_view.mode_changed.connect(self.on_mode_changed)
         self.network_view.status_message.connect(self.statusBar().showMessage)
         self.network_view.grn_modified.connect(self.on_network_modified)
+        self.network_view.item_selected.connect(self.handle_item_selected)
+
+
+    def handle_item_selected(self, item):
+        if isinstance(item, NetworkNode):
+            self.parameter_panel.show_node_parameters(item)
+        elif isinstance(item, NetworkEdge):
+            self.parameter_panel.show_edge_parameters(item)
+        else:
+            self.parameter_panel.clear_parameters()
 
     def on_mode_changed(self, mode):
         """Handle network view mode changes."""
