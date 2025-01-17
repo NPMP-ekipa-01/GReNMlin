@@ -254,11 +254,6 @@ class NetworkNode(QGraphicsEllipseItem):
         rename_action = menu.addAction("Rename")
         delete_action = menu.addAction("Delete")
 
-        # Add toggle input/regular action
-        toggle_type_action = menu.addAction(
-            "Set as Regular" if self.is_input else "Set as Input"
-        )
-
         # Get the action that was clicked
         action = menu.exec(event.screenPos())
 
@@ -266,8 +261,6 @@ class NetworkNode(QGraphicsEllipseItem):
             self.rename_node()
         elif action == delete_action:
             self.delete_node()
-        elif action == toggle_type_action:
-            self.toggle_type()
 
     def rename_node(self):
         # Get reference to main window through scene's view
