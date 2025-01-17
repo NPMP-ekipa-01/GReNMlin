@@ -1258,12 +1258,11 @@ class ParameterPanel(QWidget):
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(title)
 
-        # Species name (read-only)
+        # Species selection
         species_layout = QHBoxLayout()
         species_layout.addWidget(QLabel("Species:"))
-        self.species_label = QLabel()
-        self.species_label.setStyleSheet("font-weight: bold;")
-        species_layout.addWidget(self.species_label)
+        self.node_species_combo = QComboBox()  # Changed from label to combo box
+        species_layout.addWidget(self.node_species_combo)
         layout.addLayout(species_layout)
 
         # Display name
@@ -1440,8 +1439,15 @@ class ParameterPanel(QWidget):
         self.edge_params.hide()
         self.node_params.show()
 
-        # Update values
-        self.species_label.setText(node.species_name)
+        # Update species combo box with all available species
+        current_species = node.species_name
+        self.node_species_combo.clear()
+        self.node_species_combo.addItems(sorted(self.network_view.grn.species_names))
+
+        # Set current values
+        index = self.node_species_combo.findText(current_species)
+        if index >= 0:
+            self.node_species_combo.setCurrentIndex(index)
         self.display_name_edit.setText(node.display_name)
         self.alpha_spin.setValue(node.alpha)
         self.logic_combo.setCurrentText(node.logic_type)
@@ -1471,19 +1477,42 @@ class ParameterPanel(QWidget):
             return
 
         node = self.selected_item
+        old_species = node.species_name
+        new_species = self.node_species_combo.currentText()
+
         # Update node parameters
+        node.species_name = new_species
         node.display_name = self.display_name_edit.text()
         node.label.text = node.display_name
         node.alpha = self.alpha_spin.value()
         node.logic_type = self.logic_combo.currentText()
 
+        # If species changed, we need to update the GRN
+        if old_species != new_species:
+            view = self.network_view
+            # Update any edges that use this node
+            for edge in view.edges:
+                if edge.source_node == node or edge.target_node == node:
+                    # Find and update the corresponding gene in the GRN
+                    for gene in view.grn.genes:
+                        # Update regulators
+                        for regulator in gene["regulators"]:
+                            if regulator["name"] == old_species:
+                                regulator["name"] = new_species
+                        # Update products
+                        for product in gene["products"]:
+                            if product["name"] == old_species:
+                                product["name"] = new_species
+
+        # Update node appearance (in case input/regular status changed)
+        node.update_colors()
+
         # Update scene
         if node.scene():
             node.scene().update()
 
-        # Emit modification signal through the view
-        if isinstance(node.scene().views()[0], NetworkView):
-            node.scene().views()[0].grn_modified.emit()
+        # Emit modification signal
+        self.network_view.grn_modified.emit()
 
     def save_edge_parameters(self):
         if not isinstance(self.selected_item, NetworkEdge):
