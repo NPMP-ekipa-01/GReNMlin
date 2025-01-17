@@ -28,6 +28,7 @@ from PyQt6.QtGui import (
     QPalette,
     QPen,
     QPixmap,
+    QPainterPath,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -364,8 +365,17 @@ class NetworkEdge(QGraphicsLineItem):
         app.paletteChanged.connect(self.update_colors)
         app.styleHints().colorSchemeChanged.connect(self.update_colors)
 
+        # Make edge selectable
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.default_width = 2
+        self.selected_width = 4
+        self.visible_line = QGraphicsLineItem(self)  # Create visible child line
+
         self.setZValue(-1)  # Draw edges behind nodes
-        self.update_colors()
+
+        # Add invisible wider line for easier selection
+        self.setPen(QPen(Qt.PenStyle.NoPen))  # Make the actual line invisible
+        self.update_colors()  # This will set up the visible line's appearance
         self.update_position()
 
     def update_colors(self):
@@ -388,7 +398,11 @@ class NetworkEdge(QGraphicsLineItem):
                 # Dark red for light theme
                 edge_color = QColor(180, 0, 0)
 
-        self.setPen(QPen(edge_color, 2))
+        visible_pen = QPen(edge_color, self.selected_width if self.isSelected() else self.default_width)
+        hover_pen = QPen(Qt.PenStyle.NoPen)  # Invisible pen for the wider hoverable area
+
+        self.visible_line.setPen(visible_pen)
+        self.setPen(hover_pen)
         if self.scene():
             self.scene().update()
 
@@ -418,8 +432,57 @@ class NetworkEdge(QGraphicsLineItem):
         end_x = target_pos.x() - dx * radius
         end_y = target_pos.y() - dy * radius
 
+        # Update both the selection area and visible line
         self.setLine(start_x, start_y, end_x, end_y)
+        self.visible_line.setLine(start_x, start_y, end_x, end_y)
 
+    def shape(self):
+        # Create a wider shape for easier selection
+        path = QPainterPath()
+        line = self.line()
+
+        # Calculate a polygon that represents a thicker line
+        vector = line.p2() - line.p1()
+        length = (vector.x() * vector.x() + vector.y() * vector.y()) ** 0.5
+        if length == 0:
+            return path
+
+        # Normalize vector and create perpendicular vector
+        vector_norm = vector / length
+        perpendicular = QPointF(-vector_norm.y(), vector_norm.x())
+
+        # Width of the selection area
+        width = 10
+
+        # Create a polygon around the line
+        points = [
+            line.p1() + perpendicular * width,
+            line.p2() + perpendicular * width,
+            line.p2() - perpendicular * width,
+            line.p1() - perpendicular * width
+        ]
+
+        # Add polygon to path
+        path.moveTo(points[0])
+        for point in points[1:]:
+            path.lineTo(point)
+        path.closeSubpath()
+
+        return path
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.GraphicsItemChange.ItemSelectedChange:
+            # Update the line width when selection changes
+            self.update_colors()
+        return super().itemChange(change, value)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            # Toggle selection
+            self.setSelected(not self.isSelected())
+            event.accept()
+        else:
+            super().mousePressEvent(event)
 
     def contextMenuEvent(self, event):
         menu = QMenu()
