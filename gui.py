@@ -1187,24 +1187,74 @@ class NetworkView(QGraphicsView):
 
 
 class ParameterPanel(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, network_view, parent=None):
+        super().__init__(parent)
+        self.network_view = network_view
         self.main_layout = QVBoxLayout()
         self.setLayout(self.main_layout)
 
+        # Store currently selected item
         self.selected_item = None
+
+        # Create species selector and parameters
+        self.species_panel = self.create_species_parameters()
+
+        # Create stacked panels for different types of parameters
         self.node_params = self.create_node_parameters()
         self.edge_params = self.create_edge_parameters()
-        self.empty_params = QLabel("Select a node or edge to edit parameters")
 
         # Add all parameter widgets
-        self.main_layout.addWidget(self.empty_params)
+        self.main_layout.addWidget(self.species_panel)
         self.main_layout.addWidget(self.node_params)
-        self.node_params.hide()
         self.main_layout.addWidget(self.edge_params)
+
+        self.node_params.hide()
         self.edge_params.hide()
 
         self.main_layout.addStretch()
+
+    def create_species_parameters(self):
+        widget = QWidget()
+        layout = QVBoxLayout()
+
+        # Title
+        title = QLabel("Species Parameters")
+        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title)
+
+        # Species selector
+        selector_layout = QHBoxLayout()
+        selector_layout.addWidget(QLabel("Select species:"))
+        self.species_combo = QComboBox()
+        self.species_combo.currentTextChanged.connect(self.on_species_selected)
+        selector_layout.addWidget(self.species_combo)
+        layout.addLayout(selector_layout)
+
+        # Species type
+        type_layout = QHBoxLayout()
+        type_layout.addWidget(QLabel("Type:"))
+        self.species_type_combo = QComboBox()
+        self.species_type_combo.addItems(["Regular", "Input"])
+        type_layout.addWidget(self.species_type_combo)
+        layout.addLayout(type_layout)
+
+        # Delta (degradation rate)
+        delta_layout = QHBoxLayout()
+        delta_layout.addWidget(QLabel("Delta:"))
+        self.delta_spin = QDoubleSpinBox()
+        self.delta_spin.setRange(0.0, 1.0)
+        self.delta_spin.setSingleStep(0.01)
+        self.delta_spin.setDecimals(3)
+        delta_layout.addWidget(self.delta_spin)
+        layout.addLayout(delta_layout)
+
+        # Save button
+        self.save_species_button = QPushButton("Apply Changes")
+        self.save_species_button.clicked.connect(self.save_species_parameters)
+        layout.addWidget(self.save_species_button)
+
+        widget.setLayout(layout)
+        return widget
 
     def create_node_parameters(self):
         widget = QWidget()
@@ -1313,9 +1363,87 @@ class ParameterPanel(QWidget):
         widget.setLayout(layout)
         return widget
 
+
+    def update_species_list(self, grn):
+        """Update the species combo box with current species"""
+        current_text = self.species_combo.currentText()
+        self.species_combo.clear()
+        self.species_combo.addItems(sorted(grn.species_names))
+
+        # Try to restore the previous selection
+        index = self.species_combo.findText(current_text)
+        if index >= 0:
+            self.species_combo.setCurrentIndex(index)
+        elif self.species_combo.count() > 0:
+            self.species_combo.setCurrentIndex(0)
+
+    def on_species_selected(self, species_name):
+        """Handle species selection from combo box"""
+        if not species_name:
+            return
+
+        # Use the stored network_view reference
+        species_info = next((s for s in self.network_view.grn.species if s["name"] == species_name), None)
+        if species_info:
+            is_input = species_name in self.network_view.grn.input_species_names
+            self.species_type_combo.setCurrentText("Input" if is_input else "Regular")
+            self.delta_spin.setValue(species_info.get("delta", 0.1))
+            self.delta_spin.setEnabled(not is_input)
+
+
+    def save_species_parameters(self):
+        species_name = self.species_combo.currentText()
+        if not species_name:
+            return
+
+        # Use the stored network_view reference
+        view = self.network_view
+
+        # Get new values
+        new_type = self.species_type_combo.currentText()
+        new_delta = self.delta_spin.value()
+
+        # Update the GRN
+        is_currently_input = species_name in view.grn.input_species_names
+        will_be_input = new_type == "Input"
+
+        if is_currently_input != will_be_input:
+            # Type changed
+            if will_be_input:
+                # Convert to input species
+                view.grn.input_species_names.append(species_name)
+                # Remove delta from species info
+                for species in view.grn.species:
+                    if species["name"] == species_name and "delta" in species:
+                        del species["delta"]
+            else:
+                # Convert to regular species
+                view.grn.input_species_names.remove(species_name)
+                # Add delta to species info
+                for species in view.grn.species:
+                    if species["name"] == species_name:
+                        species["delta"] = new_delta
+                        break
+        elif not will_be_input:
+            # Update delta for regular species
+            for species in view.grn.species:
+                if species["name"] == species_name:
+                    species["delta"] = new_delta
+                    break
+
+        # Update UI
+        self.delta_spin.setEnabled(not will_be_input)
+
+        # Update all nodes of this species
+        for node in view.nodes.values():
+            if node.species_name == species_name:
+                node.update_colors()
+
+        view.grn_modified.emit()
+
     def show_node_parameters(self, node):
         self.selected_item = node
-        self.empty_params.hide()
+        self.species_panel.hide()
         self.edge_params.hide()
         self.node_params.show()
 
@@ -1327,7 +1455,7 @@ class ParameterPanel(QWidget):
 
     def show_edge_parameters(self, edge):
         self.selected_item = edge
-        self.empty_params.hide()
+        self.species_panel.hide()
         self.node_params.hide()
         self.edge_params.show()
 
@@ -1339,10 +1467,11 @@ class ParameterPanel(QWidget):
         self.n_spin.setValue(edge.n)
 
     def clear_parameters(self):
+        """Show species parameters when nothing is selected"""
         self.selected_item = None
         self.node_params.hide()
         self.edge_params.hide()
-        self.empty_params.show()
+        self.species_panel.show()
 
     def save_node_parameters(self):
         if not isinstance(self.selected_item, NetworkNode):
@@ -1699,7 +1828,7 @@ class MainWindow(QMainWindow):
         right_panel.setMaximumWidth(300)
 
         # Add parameter panel
-        self.parameter_panel = ParameterPanel()
+        self.parameter_panel = ParameterPanel(self.network_view)
         right_panel.addTab(self.parameter_panel, "Parameters")
 
         # Add simulation panel
@@ -1723,7 +1852,11 @@ class MainWindow(QMainWindow):
         self.network_view.status_message.connect(self.statusBar().showMessage)
         self.network_view.grn_modified.connect(self.on_network_modified)
         self.network_view.item_selected.connect(self.handle_item_selected)
+        self.network_view.grn_modified.connect(self.update_species_list)
 
+    def update_species_list(self):
+        """Update the species list in the parameter panel"""
+        self.parameter_panel.update_species_list(self.network_view.grn)
 
     def handle_item_selected(self, item):
         if isinstance(item, NetworkNode):
