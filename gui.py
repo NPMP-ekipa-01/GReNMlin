@@ -17,7 +17,7 @@ import uuid
 from enum import Enum
 
 import numpy as np
-from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal, QLineF, QSizeF
 from PyQt6.QtGui import (
     QBrush,
     QColor,
@@ -29,7 +29,9 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QPainterPath,
+    QPolygonF,
 )
+import math
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -329,6 +331,60 @@ class NodeLabel(QGraphicsItem):
         painter.setPen(QPen(self.text_color))
         painter.drawText(-10, -10, self.text)
 
+class ArrowLineItem(QGraphicsItem):
+    """
+    A line item with an arrow head.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.line = QLineF()
+        self.pen = QPen()
+        self.arrow_size = 20
+        self.arrow_angle = 60
+
+    def setPen(self, pen):
+        self.pen = pen
+        self.update()
+
+    def setLine(self, x1, y1, x2, y2):
+        self.line = QLineF(x1, y1, x2, y2)
+        self.update()
+
+    def boundingRect(self):
+        extra = (self.pen.width() + self.arrow_size) / 2.0
+        return QRectF(self.line.p1(),
+                     QSizeF(self.line.p2().x() - self.line.p1().x(),
+                           self.line.p2().y() - self.line.p1().y())).normalized().adjusted(-extra, -extra, extra, extra)
+
+    def paint(self, painter, option, widget):
+        painter.setPen(self.pen)
+        painter.setBrush(QBrush(self.pen.color()))
+
+        # Draw the line
+        painter.drawLine(self.line)
+
+        # Draw the arrow
+        if self.line.length() > 0:
+            angle = math.acos(self.line.dx() / self.line.length())
+            if self.line.dy() >= 0:
+                angle = 2 * math.pi - angle
+
+            # Calculate arrow points
+            arrow_p1 = self.line.p2() - QPointF(
+                math.sin(angle + math.pi / 180 * self.arrow_angle) * self.arrow_size,
+                math.cos(angle + math.pi / 180 * self.arrow_angle) * self.arrow_size)
+            arrow_p2 = self.line.p2() - QPointF(
+                math.sin(angle + math.pi - math.pi / 180 * self.arrow_angle) * self.arrow_size,
+                math.cos(angle + math.pi - math.pi / 180 * self.arrow_angle) * self.arrow_size)
+
+            # Create arrow polygon
+            arrow_head = QPolygonF()
+            arrow_head.append(self.line.p2())
+            arrow_head.append(arrow_p1)
+            arrow_head.append(arrow_p2)
+
+            # Draw the arrow head
+            painter.drawPolygon(arrow_head)
 
 class NetworkEdge(QGraphicsLineItem):
     """
@@ -369,7 +425,7 @@ class NetworkEdge(QGraphicsLineItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.default_width = 2
         self.selected_width = 4
-        self.visible_line = QGraphicsLineItem(self)  # Create visible child line
+        self.visible_line = ArrowLineItem(self)  # Create visible child line
 
         self.setZValue(-1)  # Draw edges behind nodes
 
@@ -398,7 +454,9 @@ class NetworkEdge(QGraphicsLineItem):
                 # Dark red for light theme
                 edge_color = QColor(180, 0, 0)
 
-        visible_pen = QPen(edge_color, self.selected_width if self.isSelected() else self.default_width)
+        # Use thicker line when selected, thinner when not
+        width = self.default_width if not self.isSelected() else self.selected_width
+        visible_pen = QPen(edge_color, width)
         hover_pen = QPen(Qt.PenStyle.NoPen)  # Invisible pen for the wider hoverable area
 
         self.visible_line.setPen(visible_pen)
