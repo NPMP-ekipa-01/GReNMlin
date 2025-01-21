@@ -328,12 +328,12 @@ class ArrowLineItem(QGraphicsItem):
     """
     A line item with an arrow head.
     """
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, edge_type=EdgeType.ACTIVATION):
         super().__init__(parent)
         self.line = QLineF()
         self.pen = QPen()
         self.arrow_size = 20
-        self.arrow_angle = 60
+        self.arrow_angle = 60 if edge_type == EdgeType.ACTIVATION else 0
 
     def setPen(self, pen):
         self.pen = pen
@@ -418,7 +418,7 @@ class NetworkEdge(QGraphicsLineItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.default_width = 2
         self.selected_width = 4
-        self.visible_line = ArrowLineItem(self)  # Create visible child line
+        self.visible_line = ArrowLineItem(self, edge_type)  # Create visible child line
 
         self.setZValue(-1)  # Draw edges behind nodes
 
