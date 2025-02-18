@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 
 
 
-class grn:
+class GRN:
     def __init__(self):
         self.species = []        
         self.species_names = []
@@ -160,7 +160,7 @@ class grn:
 
 
 if __name__ == "__main__":
-    my_grn = grn()
+    my_grn = GRN()
     my_grn.add_input_species("X1")
     my_grn.add_input_species("X2")
 
